@@ -40,6 +40,45 @@ Nice to have:
 - EIP2612 (ERC20Permit)
 - EIP3009
 
+## Interfaces comparison
+
+| Interface | Should the token implement it | Reason |
+| --- | --- | --- |
+| `AccessControlUpgradeable` | Probably | It provides access control, however there are more secure alternatives (see `AccessControlDefaultAdminRulesUpgradeable`)|
+| `AccessControlDefaultAdminRulesUpgradeable` | Yes | It provides access control, usefil to implement roles like `minter`, `pauser`, etc. Additionally, it contains functions to handle the default admin rules in a more secure way (compared to `AccessControlUpgradeable`) |
+| `ERC20Permit` (EIP2612) | Probably | Offers more flexibility to token holders. |
+| `EIP3009` | Probably | Offers more flexibility to token holders. |
+| `ERC20Burnable` | Yes | Useful in case we implement cross-chain native token transfers |
+| `Ownable2Step` | Probably | Provides the same functionality as OpenZeppelin's `Ownable`, but allows to transfer ownership in a more secure way (2-step mechanism) |
+
+The following are a brief description of each interface, along with links to the documentation.
+
+### AccessControlUpgradeable
+This contract implements role-based access control mechanisms.
+Allows to `grant` or `revoke` a given role to a specific address, and provides the `onlyRole(role)` modifier. [Docs](https://docs.openzeppelin.com/contracts/5.x/access-control#using-accesscontrol)
+
+### AccessControlDefaultAdminRulesUpgradeable
+
+Extends `AccessControlUpgradeable` with functions that allows specifying special rules to manage the `DEFAULT_ADMIN_ROLE` holder, which is a sensitive role with special permissions over other roles that may potentially have privileged rights in the system. [Docs](https://docs.openzeppelin.com/contracts/5.x/api/access#AccessControlDefaultAdminRules)
+
+
+### ERC20Permit
+Extends the `ERC20` with the `permit()` function, which can be used to change an account's ERC20 allowance by submitting a message signed by the account. By not relying on `IERC20.approve`, the token holder account doesn't need to send a transaction, and thus is not required to hold Ether at all. [Docs](https://docs.openzeppelin.com/contracts/4.x/api/token/erc20#erc20permit)
+
+### EIP3009
+
+Extends the `ERC20` with the `transferWithAuthorization` method, which allows a token holder to authorize a transfer off-chain by signing a message, and then anyone can submit that signed authorization on-chain to move the tokens.
+
+It enables gasless transfers for the sender, since the sender only signs a message; the caller who submits it pays the gas. [Docs](https://eips.ethereum.org/EIPS/eip-3009#reference-implementation)
+
+
+### ERC20Burnable
+Extends the `ERC20` contract with the `burn()` function, which allows token holders to destroy both their own tokens and those that they have an allowance for, in a way that can be recognized off-chain (via event analysis). [Docs](https://docs.openzeppelin.com/contracts/4.x/api/token/erc20#ERC20Burnable)
+
+### Ownable2Step
+This extension of the `Ownable` contract includes a two-step mechanism to transfer ownership, where the new owner must call `acceptOwnership` in order to replace the old one. This can help prevent common mistakes, such as transfers of ownership to incorrect accounts, or to contracts that are unable to interact with the permission system. [Docs](https://docs.openzeppelin.com/contracts/5.x/api/access#Ownable2Step)
+
+
 ## Setup 
 ### Build
 
@@ -90,3 +129,4 @@ $ forge --help
 $ anvil --help
 $ cast --help
 ```
+
