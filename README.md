@@ -44,12 +44,12 @@ Nice to have:
 
 | Interface | Reasons to include it |
 | --- | --- |
-| `AccessControlUpgradeable` |  It provides access control, useful to implement roles (like `minter`, `pauser`, etc)|
-| `AccessControlDefaultAdminRulesUpgradeable` |  It also provides access control, but additionally contains functions to handle the `DEFAULT_ADMIN` rules in a more secure way (compared to `AccessControlUpgradeable`) |
+| `AccessControlUpgradeable` |  It provides access control, useful to implement roles (like `minter`, `pauser`, etc). |
+| `AccessControlDefaultAdminRulesUpgradeable` |  It also provides access control, but additionally contains functions to handle the `DEFAULT_ADMIN` rules in a more secure way (compared to `AccessControlUpgradeable`). |
 | `ERC20Permit` (EIP2612) |  Offers more flexibility to token holders. |
 | `EIP3009` |  Offers more flexibility to token holders. |
-| `ERC20Burnable` |  Useful in case we implement cross-chain native token transfers |
-| `Ownable2Step` | Provides the same functionality as OpenZeppelin's `Ownable`, but allows to transfer ownership in a more secure way (2-step mechanism) |
+| `ERC20Burnable` | When users redeem their tokens, these must be burned. |
+| `Ownable2Step` | Provides the same functionality as OpenZeppelin's `Ownable`, but allows to transfer ownership in a more secure way (2-step mechanism). |
 
 The following is a brief description of each interface, along with links to the documentation.
 
