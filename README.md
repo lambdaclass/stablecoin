@@ -1,20 +1,46 @@
-## Foundry
+## Stablecoin
 
-**Foundry is a blazing fast, portable and modular toolkit for Ethereum application development written in Rust.**
+## Stablecoin Comparison
 
-Foundry consists of:
+In the analysis we will compare:
 
-- **Forge**: Ethereum testing framework (like Truffle, Hardhat and DappTools).
-- **Cast**: Swiss army knife for interacting with EVM smart contracts, sending transactions and getting chain data.
-- **Anvil**: Local Ethereum node, akin to Ganache, Hardhat Network.
-- **Chisel**: Fast, utilitarian, and verbose solidity REPL.
+- USDC
+- DAI
+- USDS
+- USDT
+- PYUSD
+- Ethena USDe
 
-## Documentation
+Using the following criteria:
 
-https://book.getfoundry.sh/
+- What interfaces/features does it implements?
+- Does it have pauser role?
+- Does it have freezer role?
+- Does it have blacklisting?
+- Does it have max mint amount?
+- Does it have max burn amount?
+- Does it have max transfer amount?
+- Does they use OpenZeppelin?
+- What kind of proxy do they use?
 
-## Usage
 
+| Stablecoin | Pauser | Freezer | Blacklisting | Max Mint Amount | Max Burn Amount | Max Transfer Amount | OpenZeppelin | Proxy |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| USDC | Yes | Yes | Yes | Yes | No | No | IERC20, Ownable, SafeMath, Address | Yes (based on old OpenZeppelin) |
+| USDT | Yes | No | Yes | No | No | No | No | No |
+| PYUSD(PaxosToken) | Yes | No | No | Yes(SupplyControl) | No | No | Yes (AccessControlDefaultAdminRulesUpgradeable) | Yes |
+| Ethena USDe | No | No | No | No | No | No | Yes(IERC20, IERC20Permit, IERC20Metadata, Ownable2Step, ERC20Burnable, ERC20Permit) | No |
+| DAI | TBD | TBD | TBD | TBD | TBD | TBD | TBD | TBD |
+| USDS | TBD | TBD | TBD | TBD | TBD | TBD | TBD | TBD |
+
+
+Nice to have:
+- ERC20PermitUpgradeable
+- AccessControlUpgradeable
+- EIP2612 (ERC20Permit)
+- EIP3009
+
+## Setup 
 ### Build
 
 ```shell
