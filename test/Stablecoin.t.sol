@@ -23,16 +23,18 @@ contract StablecoinTest is Test {
 
     function test_AddMinter() public {
         address newMinter = address(1);
+        uint256 amount = 1000;
         vm.prank(admin);
-        stablecoin.addMinter(newMinter);
+        stablecoin.addMinter(newMinter, amount);
 
         bool hasRole = stablecoin.hasRole(stablecoin.MINTER_ROLE(), newMinter);
         assertTrue(hasRole);
+        assertEq(stablecoin.minterAllowance(newMinter), amount);
 
-        uint256 amount = 1000;
         vm.prank(newMinter);
         stablecoin.mint(newMinter, amount);
         assertEq(stablecoin.balanceOf(newMinter), amount);
+        assertEq(stablecoin.minterAllowance(newMinter), 0);
     }
 
     function test_NonMinterAccountCannotMint() public {

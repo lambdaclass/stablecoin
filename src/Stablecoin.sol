@@ -20,6 +20,8 @@ contract Stablecoin is
     bytes32 public constant MINTER_ROLE = keccak256("MINTER_ROLE");
     bytes32 public constant PAUSER_ROLE = keccak256("PAUSER_ROLE");
 
+    mapping(address => uint256) public minterAllowance;
+
     constructor() {
         _disableInitializers();
     }
@@ -33,11 +35,14 @@ contract Stablecoin is
         _grantRole(ADMIN_ROLE, msg.sender);
     }
 
-    function addMinter(address newMinter) public onlyRole(ADMIN_ROLE) {
+    function addMinter(address newMinter, uint256 amount) public onlyRole(ADMIN_ROLE) {
+        minterAllowance[newMinter] = amount;
         grantRole(MINTER_ROLE, newMinter);
     }
 
     function mint(address to, uint256 value) public onlyRole(MINTER_ROLE) {
+        require(minterAllowance[msg.sender] >= value, "Value exceeds allowance");
+        minterAllowance[msg.sender] -= value;
         _mint(to, value);
     }
 
