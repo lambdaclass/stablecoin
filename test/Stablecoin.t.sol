@@ -3,8 +3,10 @@ pragma solidity ^0.8.13;
 
 import {Test} from "forge-std/Test.sol";
 import {Stablecoin} from "../src/Stablecoin.sol";
-import {ERC1967Proxy} from "lib/openzeppelin-contracts-upgradeable/lib/openzeppelin-contracts/contracts/proxy/ERC1967/ERC1967Proxy.sol";
-
+import {ERC1967Proxy} from
+    "lib/openzeppelin-contracts-upgradeable/lib/openzeppelin-contracts/contracts/proxy/ERC1967/ERC1967Proxy.sol";
+import {IAccessControl} from
+    "lib/openzeppelin-contracts-upgradeable/lib/openzeppelin-contracts/contracts/access/IAccessControl.sol";
 
 contract StablecoinTest is Test {
     Stablecoin public stablecoin;
@@ -13,7 +15,8 @@ contract StablecoinTest is Test {
     function setUp() public {
         vm.startPrank(admin);
         address impl = address(new Stablecoin());
-        address proxy = address(new ERC1967Proxy(impl, abi.encodeCall(Stablecoin.initialize, ("Stablecoin", "Stablecoin"))));
+        address proxy =
+            address(new ERC1967Proxy(impl, abi.encodeCall(Stablecoin.initialize, ("Stablecoin", "Stablecoin"))));
         stablecoin = Stablecoin(proxy);
         vm.stopPrank();
     }
@@ -22,8 +25,20 @@ contract StablecoinTest is Test {
         address newMinter = address(1);
         vm.prank(admin);
         stablecoin.addMinter(newMinter);
-        
+
         bool hasRole = stablecoin.hasRole(stablecoin.MINTER_ROLE(), newMinter);
         assertTrue(hasRole);
+
+        uint256 amount = 1000;
+        vm.prank(newMinter);
+        stablecoin.mint(newMinter, amount);
+        assertEq(stablecoin.balanceOf(newMinter), amount);
+    }
+
+    function test_NonMinterAccountCannotMint() public {
+        address nonMinter = address(2);
+        uint256 amount = 1000;
+        vm.expectRevert();
+        stablecoin.mint(nonMinter, amount);
     }
 }
