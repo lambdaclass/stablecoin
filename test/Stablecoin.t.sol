@@ -5,8 +5,6 @@ import {Test} from "forge-std/Test.sol";
 import {Stablecoin} from "../src/Stablecoin.sol";
 import {ERC1967Proxy} from
     "lib/openzeppelin-contracts-upgradeable/lib/openzeppelin-contracts/contracts/proxy/ERC1967/ERC1967Proxy.sol";
-import {IAccessControl} from
-    "lib/openzeppelin-contracts-upgradeable/lib/openzeppelin-contracts/contracts/access/IAccessControl.sol";
 
 contract StablecoinTest is Test {
     Stablecoin public stablecoin;
@@ -35,6 +33,17 @@ contract StablecoinTest is Test {
         stablecoin.mint(newMinter, amount);
         assertEq(stablecoin.balanceOf(newMinter), amount);
         assertEq(stablecoin.minterAllowance(newMinter), 0);
+    }
+
+    function test_MinterCannotMintMoreThanAllowance() public {
+        address newMinter = address(1);
+        uint256 amount = 1000;
+        vm.prank(admin);
+        stablecoin.addMinter(newMinter, amount);
+
+        vm.prank(newMinter);
+        vm.expectRevert("Value exceeds allowance");
+        stablecoin.mint(newMinter, amount + 1);
     }
 
     function test_NonMinterAccountCannotMint() public {
