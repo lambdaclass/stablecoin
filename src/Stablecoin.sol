@@ -4,6 +4,8 @@ pragma solidity ^0.8.13;
 
 import {ERC20BurnableUpgradeable} from
     "@openzeppelin/contracts-upgradeable/token/ERC20/extensions/ERC20BurnableUpgradeable.sol";
+import {ERC20PausableUpgradeable} from
+    "@openzeppelin/contracts-upgradeable/token/ERC20/extensions/ERC20PausableUpgradeable.sol";
 import {ERC20Upgradeable} from "@openzeppelin/contracts-upgradeable/token/ERC20/ERC20Upgradeable.sol";
 import {AccessControlUpgradeable} from "@openzeppelin/contracts-upgradeable/access/AccessControlUpgradeable.sol";
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
@@ -13,6 +15,7 @@ contract Stablecoin is
     Initializable,
     ERC20Upgradeable,
     ERC20BurnableUpgradeable,
+    ERC20PausableUpgradeable,
     AccessControlUpgradeable,
     UUPSUpgradeable
 {
@@ -27,39 +30,59 @@ contract Stablecoin is
         _disableInitializers();
     }
 
-    function initialize(string memory name, string memory symbol, address admin, address burner) public initializer {
+    function initialize(string memory name, string memory symbol, address admin, address burner, address pauser)
+        public
+        initializer
+    {
         __ERC20_init(name, symbol);
         __ERC20Burnable_init();
         __AccessControl_init();
 
         _setRoleAdmin(MINTER_ROLE, ADMIN_ROLE);
         _setRoleAdmin(BURNER_ROLE, ADMIN_ROLE);
+        _setRoleAdmin(PAUSER_ROLE, ADMIN_ROLE);
         _grantRole(ADMIN_ROLE, admin);
         _grantRole(BURNER_ROLE, burner);
+        _grantRole(PAUSER_ROLE, pauser);
     }
 
-    function addMinter(address newMinter, uint256 amount) public onlyRole(ADMIN_ROLE) {
+    function addMinter(address newMinter, uint256 amount) public onlyRole(ADMIN_ROLE) whenNotPaused {
         minterAllowance[newMinter] = amount;
         grantRole(MINTER_ROLE, newMinter);
     }
 
-    function addBurner(address newBurner) public onlyRole(ADMIN_ROLE) {
+    function addBurner(address newBurner) public onlyRole(ADMIN_ROLE) whenNotPaused {
         grantRole(BURNER_ROLE, newBurner);
     }
 
-    function mint(address to, uint256 value) public onlyRole(MINTER_ROLE) {
+    function mint(address to, uint256 value) public onlyRole(MINTER_ROLE) whenNotPaused {
         require(minterAllowance[msg.sender] >= value, "Value exceeds allowance");
         minterAllowance[msg.sender] -= value;
         _mint(to, value);
     }
 
-    function burn(uint256 value) public override onlyRole(BURNER_ROLE) {
+    function burn(uint256 value) public override onlyRole(BURNER_ROLE) whenNotPaused {
         _burn(_msgSender(), value);
     }
 
-    function burnFrom(address account, uint256 value) public override onlyRole(BURNER_ROLE) {
+    function burnFrom(address account, uint256 value) public override onlyRole(BURNER_ROLE) whenNotPaused {
         _spendAllowance(account, _msgSender(), value);
         _burn(account, value);
+    }
+
+    function pause() public onlyRole(PAUSER_ROLE) {
+        _pause();
+    }
+
+    function unpause() public onlyRole(PAUSER_ROLE) {
+        _unpause();
+    }
+
+    function _update(address from, address to, uint256 value)
+        internal
+        override(ERC20Upgradeable, ERC20PausableUpgradeable)
+    {
+        super._update(from, to, value);
     }
 
     function _authorizeUpgrade(address newImplementation) internal override onlyRole(ADMIN_ROLE) {}

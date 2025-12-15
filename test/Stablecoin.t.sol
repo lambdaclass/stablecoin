@@ -11,12 +11,15 @@ contract StablecoinTest is Test {
     address public admin = 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266;
     address public minter = 0x70997970C51812dc3A010C7d01b50e0d17dc79C8;
     address public burner = 0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC;
+    address public pauser = 0x90F79bf6EB2c4f870365E785982E1f101E93b906;
 
     function setUp() public {
         vm.startPrank(admin);
         address impl = address(new Stablecoin());
         address proxy = address(
-            new ERC1967Proxy(impl, abi.encodeCall(Stablecoin.initialize, ("Stablecoin", "Stablecoin", admin, burner)))
+            new ERC1967Proxy(
+                impl, abi.encodeCall(Stablecoin.initialize, ("Stablecoin", "Stablecoin", admin, burner, pauser))
+            )
         );
         stablecoin = Stablecoin(proxy);
         stablecoin.addMinter(minter, 1000);
@@ -98,5 +101,15 @@ contract StablecoinTest is Test {
         vm.prank(nonBurnerAccount);
         vm.expectRevert();
         stablecoin.burn(amount);
+    }
+
+    // TODO: test more functions when paused
+    function test_CannotMintWhenPaused() public {
+        vm.prank(pauser);
+        stablecoin.pause();
+
+        vm.expectRevert();
+        vm.prank(minter);
+        stablecoin.mint(minter, 1000);
     }
 }
