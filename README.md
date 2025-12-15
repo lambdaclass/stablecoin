@@ -32,6 +32,8 @@ Using the following criteria:
 | Ethena USDe | No | No | No | No | No | No | Yes(IERC20, IERC20Permit, IERC20Metadata, Ownable2Step, ERC20Burnable, ERC20Permit) | No |
 | DAI | No | No | No | No | No | No | No (impls 712 manually) | No |
 | USDS | No | No | No | No | No | No | Yes(UUPSUpgradeable, 712) | Yes(UUPSUpgradeable) |
+| TIP-20 (Tempo) | Yes | Yes | Yes | Yes | TBD | TBD | No | Yes |
+| LatamStables (Ripio) | Yes | Yes | Yes | No | No | No | Yes (Initializable, ERC20Upgradeable, ERC20BurnableUpgradeable, ERC20PausableUpgradeable, AccessControlUpgradeable, ERC20PermitUpgradeable) | Yes (UUPSUpgradeable) |
 
 
 Nice to have:
