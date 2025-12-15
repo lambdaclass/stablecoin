@@ -20,20 +20,32 @@ contract Stablecoin is
     UUPSUpgradeable
 {
     bytes32 public constant ADMIN_ROLE = keccak256("ADMIN_ROLE");
-    bytes32 public constant MINTER_ROLE = keccak256("MINTER_ROLE");
     bytes32 public constant BURNER_ROLE = keccak256("BURNER_ROLE");
+    bytes32 public constant FREEZER_ROLE = keccak256("FREEZER_ROLE");
+    bytes32 public constant MINTER_ROLE = keccak256("MINTER_ROLE");
     bytes32 public constant PAUSER_ROLE = keccak256("PAUSER_ROLE");
 
     mapping(address => uint256) public minterAllowance;
+    // Freezed accounts
+    mapping(address => bool) public freezed;
+
+    modifier whenNotFreezed(address account) {
+        require(!freezed[account], "Freezed account");
+        _;
+    }
 
     constructor() {
         _disableInitializers();
     }
 
-    function initialize(string memory name, string memory symbol, address admin, address burner, address pauser)
-        public
-        initializer
-    {
+    function initialize(
+        string memory name,
+        string memory symbol,
+        address admin,
+        address burner,
+        address pauser,
+        address freezer
+    ) public initializer {
         __ERC20_init(name, symbol);
         __ERC20Burnable_init();
         __AccessControl_init();
@@ -41,9 +53,11 @@ contract Stablecoin is
         _setRoleAdmin(MINTER_ROLE, ADMIN_ROLE);
         _setRoleAdmin(BURNER_ROLE, ADMIN_ROLE);
         _setRoleAdmin(PAUSER_ROLE, ADMIN_ROLE);
+        _setRoleAdmin(FREEZER_ROLE, ADMIN_ROLE);
         _grantRole(ADMIN_ROLE, admin);
         _grantRole(BURNER_ROLE, burner);
         _grantRole(PAUSER_ROLE, pauser);
+        _grantRole(FREEZER_ROLE, freezer);
     }
 
     function addMinter(address newMinter, uint256 amount) public onlyRole(ADMIN_ROLE) whenNotPaused {
@@ -68,6 +82,27 @@ contract Stablecoin is
     function burnFrom(address account, uint256 value) public override onlyRole(BURNER_ROLE) whenNotPaused {
         _spendAllowance(account, _msgSender(), value);
         _burn(account, value);
+    }
+
+    function transfer(address to, uint256 value)
+        public
+        override
+        whenNotPaused
+        whenNotFreezed(msg.sender)
+        whenNotFreezed(to)
+        returns (bool)
+    {
+        address owner = _msgSender();
+        _transfer(owner, to, value);
+        return true;
+    }
+
+    function freeze(address account) public onlyRole(FREEZER_ROLE) whenNotPaused {
+        freezed[account] = true;
+    }
+
+    function unfreeze(address account) public onlyRole(FREEZER_ROLE) whenNotPaused {
+        freezed[account] = false;
     }
 
     function pause() public onlyRole(PAUSER_ROLE) {
