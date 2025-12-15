@@ -30,8 +30,8 @@ Using the following criteria:
 | USDT | Yes | No | Yes | No | No | No | No | No |
 | PYUSD(PaxosToken) | Yes | No | No | Yes(SupplyControl) | No | No | Yes (AccessControlDefaultAdminRulesUpgradeable) | Yes |
 | Ethena USDe | No | No | No | No | No | No | Yes(IERC20, IERC20Permit, IERC20Metadata, Ownable2Step, ERC20Burnable, ERC20Permit) | No |
-| DAI | TBD | TBD | TBD | TBD | TBD | TBD | TBD | TBD |
-| USDS | TBD | TBD | TBD | TBD | TBD | TBD | TBD | TBD |
+| DAI | No | No | No | No | No | No | No (impls 712 manually) | No |
+| USDS | No | No | No | No | No | No | Yes(UUPSUpgradeable, 712) | Yes(UUPSUpgradeable) |
 
 
 Nice to have:
@@ -39,6 +39,7 @@ Nice to have:
 - AccessControlUpgradeable
 - EIP2612 (ERC20Permit)
 - EIP3009
+- EIP712 (Typed structured data hashing and signing)
 
 ## Setup 
 ### Build
