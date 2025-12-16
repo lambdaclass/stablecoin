@@ -3,8 +3,9 @@ pragma solidity ^0.8.13;
 
 import {Test} from "forge-std/Test.sol";
 import {Stablecoin} from "../src/Stablecoin.sol";
-import {ERC1967Proxy} from
-    "lib/openzeppelin-contracts-upgradeable/lib/openzeppelin-contracts/contracts/proxy/ERC1967/ERC1967Proxy.sol";
+import {
+    ERC1967Proxy
+} from "lib/openzeppelin-contracts-upgradeable/lib/openzeppelin-contracts/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 
 contract StablecoinTest is Test {
     Stablecoin public stablecoin;
