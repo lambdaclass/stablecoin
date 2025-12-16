@@ -15,7 +15,7 @@ contract StablecoinTest is Test {
     address public pauser = 0x90F79bf6EB2c4f870365E785982E1f101E93b906;
     address public freezer = 0x15d34AAf54267DB7D7c367839AAf71A00a2C6A65;
 
-    bytes public ENFORCED_PAUSE_ERROR = abi.encodeWithSignature("EnforcedPause()");
+    bytes public constant ENFORCED_PAUSE_ERROR = abi.encodeWithSignature("EnforcedPause()");
 
     function setUp() public {
         vm.startPrank(admin);
@@ -45,6 +45,15 @@ contract StablecoinTest is Test {
         stablecoin.mint(newMinter, amount);
         assertEq(stablecoin.balanceOf(newMinter), amount);
         assertEq(stablecoin.minterAllowance(newMinter), 0);
+    }
+
+    function test_AddBurner() public {
+        address newBurner = address(1);
+        vm.prank(admin);
+        stablecoin.addBurner(newBurner);
+
+        bool hasRole = stablecoin.hasRole(stablecoin.BURNER_ROLE(), newBurner);
+        assertTrue(hasRole);
     }
 
     function test_MinterCannotMintMoreThanAllowance() public {
