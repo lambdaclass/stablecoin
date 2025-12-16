@@ -83,6 +83,28 @@ contract StablecoinTest is Test {
         assertEq(stablecoin.allowance(owner, spender), amount);
     }
 
+    function test_ApproveAndTransferFrom() public {
+        address owner = address(1);
+        address spender = address(2);
+        address receiver = address(3);
+        uint256 amount = 1000;
+
+        vm.prank(MINTER);
+        stablecoin.mint(owner, amount);
+
+        uint256 ownerBalance = stablecoin.balanceOf(owner);
+        uint256 receiverBalance = stablecoin.balanceOf(receiver);
+
+        vm.prank(owner);
+        assertTrue(stablecoin.approve(spender, amount));
+
+        vm.prank(spender);
+        stablecoin.transferFrom(owner, receiver, amount);
+
+        assertEq(stablecoin.balanceOf(owner), ownerBalance - amount);
+        assertEq(stablecoin.balanceOf(receiver), receiverBalance + amount);
+    }
+
     function test_MinterCannotMintMoreThanAllowance() public {
         address newMinter = address(1);
         uint256 amount = 1000;
@@ -178,6 +200,17 @@ contract StablecoinTest is Test {
         stablecoin.transfer(otherAccount, 1000);
     }
 
+    function test_CannotTransferFromWhenPaused() public {
+        address account = address(1);
+        address otherAccount = address(2);
+        vm.prank(PAUSER);
+        stablecoin.pause();
+
+        vm.prank(account);
+        vm.expectRevert(ENFORCED_PAUSE_ERROR);
+        stablecoin.transferFrom(otherAccount, account, 1000);
+    }
+
     function test_CannotFreezeWhenPaused() public {
         address account = address(1);
         vm.prank(PAUSER);
@@ -220,7 +253,8 @@ contract StablecoinTest is Test {
 
     function test_FreezeAccount() public {
         address freezedAccount = address(1);
-        address otherAccount = address(2);
+        address account = address(2);
+        address otherAccount = address(3);
 
         // Freeze the account
         vm.prank(FREEZER);
@@ -243,6 +277,19 @@ contract StablecoinTest is Test {
         vm.prank(otherAccount);
         vm.expectRevert("Freezed account");
         stablecoin.transfer(freezedAccount, 1000);
+
+        // Check calling transferFrom with any freezed account fails
+        vm.prank(freezedAccount);
+        vm.expectRevert("Freezed account");
+        stablecoin.transferFrom(account, otherAccount, 1000);
+
+        vm.prank(otherAccount);
+        vm.expectRevert("Freezed account");
+        stablecoin.transferFrom(freezedAccount, otherAccount, 1000);
+
+        vm.prank(otherAccount);
+        vm.expectRevert("Freezed account");
+        stablecoin.transferFrom(account, freezedAccount, 1000);
     }
 
     function test_UnfreezeAccount() public {
