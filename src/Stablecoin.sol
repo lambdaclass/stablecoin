@@ -32,7 +32,7 @@ contract Stablecoin is
     mapping(address => bool) public freezed;
 
     modifier whenNotFreezed(address account) {
-        require(!freezed[account], "Freezed account");
+        _whenNotFreezed(account);
         _;
     }
 
@@ -124,4 +124,8 @@ contract Stablecoin is
     }
 
     function _authorizeUpgrade(address newImplementation) internal override onlyRole(ADMIN_ROLE) {}
+
+    function _whenNotFreezed(address account) internal view {
+        require(!freezed[account], "Freezed account");
+    }
 }
