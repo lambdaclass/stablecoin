@@ -99,6 +99,21 @@ contract Stablecoin is
         return true;
     }
 
+    function transferFrom(address from, address to, uint256 value)
+        public
+        override
+        whenNotPaused
+        whenNotFreezed(msg.sender)
+        whenNotFreezed(from)
+        whenNotFreezed(to)
+        returns (bool)
+    {
+        address spender = _msgSender();
+        _spendAllowance(from, spender, value);
+        _transfer(from, to, value);
+        return true;
+    }
+
     function approve(address spender, uint256 value)
         public
         override
