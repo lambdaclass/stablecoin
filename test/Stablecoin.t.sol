@@ -16,6 +16,7 @@ contract StablecoinTest is Test {
     address public constant FREEZER = 0x15d34AAf54267DB7D7c367839AAf71A00a2C6A65;
 
     bytes public constant ENFORCED_PAUSE_ERROR = abi.encodeWithSignature("EnforcedPause()");
+    bytes public constant FREEZED_ACCOUNT_ERROR = "Freezed account";
 
     function setUp() public {
         vm.startPrank(ADMIN);
@@ -202,14 +203,19 @@ contract StablecoinTest is Test {
     }
 
     function test_CannotTransferFromWhenPaused() public {
-        address account = address(1);
-        address otherAccount = address(2);
+        address owner = address(1);
+        address spender = address(2);
+        uint256 amount = 1000;
+
+        vm.prank(owner);
+        stablecoin.approve(spender, amount);
+
         vm.prank(PAUSER);
         stablecoin.pause();
 
-        vm.prank(account);
+        vm.prank(spender);
         vm.expectRevert(ENFORCED_PAUSE_ERROR);
-        stablecoin.transferFrom(otherAccount, account, 1000);
+        stablecoin.transferFrom(owner, spender, amount);
     }
 
     function test_CannotFreezeWhenPaused() public {
@@ -242,45 +248,96 @@ contract StablecoinTest is Test {
         stablecoin.addMinter(account, 1000);
     }
 
-    function test_FreezeAccount() public {
+    function test_CannotMintToFreezedAccount() public {
         address freezedAccount = address(1);
-        address account = address(2);
-        address otherAccount = address(3);
+        uint256 amount = 1000;
 
-        // Freeze the account
         vm.prank(FREEZER);
         stablecoin.freeze(freezedAccount);
 
-        // Check minting to freezed account fails
         vm.prank(MINTER);
-        vm.expectRevert("Freezed account");
-        stablecoin.mint(freezedAccount, 1000);
+        vm.expectRevert(FREEZED_ACCOUNT_ERROR);
+        stablecoin.mint(freezedAccount, amount);
+    }
 
-        // Check transferring from freezed account fails
+    function test_CannotTransferFromFreezedAccount() public {
+        address freezedAccount = address(1);
+        address otherAccount = address(2);
+        uint256 amount = 1000;
+
+        vm.prank(FREEZER);
+        stablecoin.freeze(freezedAccount);
+
         vm.prank(freezedAccount);
-        vm.expectRevert("Freezed account");
-        stablecoin.transfer(otherAccount, 1000);
+        vm.expectRevert(FREEZED_ACCOUNT_ERROR);
+        stablecoin.transfer(otherAccount, amount);
+    }
 
-        vm.prank(MINTER);
-        stablecoin.mint(otherAccount, 1000);
+    function test_CannotTransferToFreezedAccount() public {
+        address freezedAccount = address(1);
+        address otherAccount = address(2);
+        uint256 amount = 1000;
 
-        // Check transferring to freezed account fails
-        vm.prank(otherAccount);
-        vm.expectRevert("Freezed account");
-        stablecoin.transfer(freezedAccount, 1000);
-
-        // Check calling transferFrom with any freezed account fails
-        vm.prank(freezedAccount);
-        vm.expectRevert("Freezed account");
-        stablecoin.transferFrom(account, otherAccount, 1000);
+        vm.prank(FREEZER);
+        stablecoin.freeze(freezedAccount);
 
         vm.prank(otherAccount);
-        vm.expectRevert("Freezed account");
-        stablecoin.transferFrom(freezedAccount, otherAccount, 1000);
+        vm.expectRevert(FREEZED_ACCOUNT_ERROR);
+        stablecoin.transfer(freezedAccount, amount);
+    }
 
-        vm.prank(otherAccount);
-        vm.expectRevert("Freezed account");
-        stablecoin.transferFrom(account, freezedAccount, 1000);
+    function test_CannotCallTransferFromWhenSpenderIsFreezed() public {
+        address owner = address(1);
+        address spender = address(2);
+        address receiver = address(3);
+        uint256 amount = 1000;
+
+        vm.prank(owner);
+        stablecoin.approve(spender, amount);
+
+        // Freeze the spender
+        vm.prank(FREEZER);
+        stablecoin.freeze(spender);
+
+        vm.prank(spender);
+        vm.expectRevert(FREEZED_ACCOUNT_ERROR);
+        stablecoin.transferFrom(owner, receiver, amount);
+    }
+
+    function test_CannotCallTransferFromWhenOwnerIsFreezed() public {
+        address owner = address(1);
+        address spender = address(2);
+        address receiver = address(3);
+        uint256 amount = 1000;
+
+        vm.prank(owner);
+        stablecoin.approve(spender, amount);
+
+        // Freeze the owner
+        vm.prank(FREEZER);
+        stablecoin.freeze(owner);
+
+        vm.prank(spender);
+        vm.expectRevert(FREEZED_ACCOUNT_ERROR);
+        stablecoin.transferFrom(owner, receiver, amount);
+    }
+
+    function test_CannotCallTransferFromWhenReceiverIsFreezed() public {
+        address owner = address(1);
+        address spender = address(2);
+        address receiver = address(3);
+        uint256 amount = 1000;
+
+        vm.prank(owner);
+        stablecoin.approve(spender, amount);
+
+        // Freeze the receiver
+        vm.prank(FREEZER);
+        stablecoin.freeze(receiver);
+
+        vm.prank(spender);
+        vm.expectRevert(FREEZED_ACCOUNT_ERROR);
+        stablecoin.transferFrom(owner, receiver, amount);
     }
 
     function test_UnfreezeAccount() public {
