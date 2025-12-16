@@ -63,7 +63,7 @@ contract Stablecoin is
         return 6;
     }
 
-    function mint(address to, uint256 value) public onlyRole(MINTER_ROLE) whenNotPaused whenNotFreezed(to) {
+    function mint(address to, uint256 value) public onlyRole(MINTER_ROLE) whenNotPaused {
         require(minterAllowance[msg.sender] >= value, "Value exceeds allowance");
         minterAllowance[msg.sender] -= value;
         _mint(to, value);
