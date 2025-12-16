@@ -9,32 +9,32 @@ import {
 
 contract StablecoinTest is Test {
     Stablecoin public stablecoin;
-    address public admin = 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266;
-    address public minter = 0x70997970C51812dc3A010C7d01b50e0d17dc79C8;
-    address public burner = 0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC;
-    address public pauser = 0x90F79bf6EB2c4f870365E785982E1f101E93b906;
-    address public freezer = 0x15d34AAf54267DB7D7c367839AAf71A00a2C6A65;
+    address public constant ADMIN = 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266;
+    address public constant MINTER = 0x70997970C51812dc3A010C7d01b50e0d17dc79C8;
+    address public constant BURNER = 0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC;
+    address public constant PAUSER = 0x90F79bf6EB2c4f870365E785982E1f101E93b906;
+    address public constant FREEZER = 0x15d34AAf54267DB7D7c367839AAf71A00a2C6A65;
 
     bytes public constant ENFORCED_PAUSE_ERROR = abi.encodeWithSignature("EnforcedPause()");
 
     function setUp() public {
-        vm.startPrank(admin);
+        vm.startPrank(ADMIN);
         address impl = address(new Stablecoin());
         address proxy = address(
             new ERC1967Proxy(
                 impl,
-                abi.encodeCall(Stablecoin.initialize, ("Stablecoin", "Stablecoin", admin, burner, pauser, freezer))
+                abi.encodeCall(Stablecoin.initialize, ("Stablecoin", "Stablecoin", ADMIN, BURNER, PAUSER, FREEZER))
             )
         );
         stablecoin = Stablecoin(proxy);
-        stablecoin.addMinter(minter, 1000);
+        stablecoin.addMinter(MINTER, 1000);
         vm.stopPrank();
     }
 
     function test_AddMinter() public {
         address newMinter = address(1);
         uint256 amount = 1000;
-        vm.prank(admin);
+        vm.prank(ADMIN);
         stablecoin.addMinter(newMinter, amount);
 
         bool hasRole = stablecoin.hasRole(stablecoin.MINTER_ROLE(), newMinter);
@@ -49,7 +49,7 @@ contract StablecoinTest is Test {
 
     function test_AddBurner() public {
         address newBurner = address(1);
-        vm.prank(admin);
+        vm.prank(ADMIN);
         stablecoin.addBurner(newBurner);
 
         bool hasRole = stablecoin.hasRole(stablecoin.BURNER_ROLE(), newBurner);
@@ -62,7 +62,7 @@ contract StablecoinTest is Test {
         uint256 totalAmount = 1000;
         uint256 transferredAmount = 100;
 
-        vm.prank(minter);
+        vm.prank(MINTER);
         stablecoin.mint(sender, totalAmount);
 
         vm.prank(sender);
@@ -75,7 +75,7 @@ contract StablecoinTest is Test {
     function test_MinterCannotMintMoreThanAllowance() public {
         address newMinter = address(1);
         uint256 amount = 1000;
-        vm.prank(admin);
+        vm.prank(ADMIN);
         stablecoin.addMinter(newMinter, amount);
 
         vm.prank(newMinter);
@@ -94,16 +94,16 @@ contract StablecoinTest is Test {
     function test_Burn() public {
         uint256 amount = 100;
         // Mint tokens to the burner
-        vm.prank(minter);
-        stablecoin.mint(burner, amount);
-        uint256 burnerBalance = stablecoin.balanceOf(burner);
+        vm.prank(MINTER);
+        stablecoin.mint(BURNER, amount);
+        uint256 burnerBalance = stablecoin.balanceOf(BURNER);
 
         // Burn the burner tokens
-        vm.prank(burner);
+        vm.prank(BURNER);
         stablecoin.burn(amount);
 
         uint256 expectedBalance = burnerBalance - amount;
-        assertEq(stablecoin.balanceOf(burner), expectedBalance);
+        assertEq(stablecoin.balanceOf(BURNER), expectedBalance);
     }
 
     function test_BurnFrom() public {
@@ -111,17 +111,17 @@ contract StablecoinTest is Test {
         uint256 amount = 100;
 
         // Mint tokens to the account
-        vm.prank(minter);
+        vm.prank(MINTER);
         stablecoin.mint(account, amount);
         uint256 initialAccountBalance = stablecoin.balanceOf(account);
 
         // Approve allowance to the burner from the account
         vm.prank(account);
-        stablecoin.approve(burner, amount);
+        stablecoin.approve(BURNER, amount);
 
-        vm.prank(burner);
+        vm.prank(BURNER);
         stablecoin.burnFrom(account, amount);
-        assertEq(stablecoin.balanceOf(burner), initialAccountBalance - amount);
+        assertEq(stablecoin.balanceOf(BURNER), initialAccountBalance - amount);
     }
 
     function test_NonBurnerAccountCannotBurn() public {
@@ -134,24 +134,24 @@ contract StablecoinTest is Test {
 
     // TODO: test more functions when paused
     function test_CannotMintWhenPaused() public {
-        vm.prank(pauser);
+        vm.prank(PAUSER);
         stablecoin.pause();
 
-        vm.prank(minter);
+        vm.prank(MINTER);
         vm.expectRevert(ENFORCED_PAUSE_ERROR);
-        stablecoin.mint(minter, 1000);
+        stablecoin.mint(MINTER, 1000);
     }
 
     function test_CannotBurnWhenPaused() public {
-        vm.prank(pauser);
+        vm.prank(PAUSER);
         stablecoin.pause();
 
-        vm.prank(burner);
+        vm.prank(BURNER);
         vm.expectRevert(ENFORCED_PAUSE_ERROR);
         stablecoin.burn(1000);
 
         address account = address(1);
-        vm.prank(burner);
+        vm.prank(BURNER);
         vm.expectRevert(ENFORCED_PAUSE_ERROR);
         stablecoin.burnFrom(account, 1000);
     }
@@ -159,7 +159,7 @@ contract StablecoinTest is Test {
     function test_CannotTransferWhenPaused() public {
         address account = address(1);
         address otherAccount = address(2);
-        vm.prank(pauser);
+        vm.prank(PAUSER);
         stablecoin.pause();
 
         vm.prank(account);
@@ -169,40 +169,40 @@ contract StablecoinTest is Test {
 
     function test_CannotFreezeWhenPaused() public {
         address account = address(1);
-        vm.prank(pauser);
+        vm.prank(PAUSER);
         stablecoin.pause();
 
-        vm.prank(freezer);
+        vm.prank(FREEZER);
         vm.expectRevert(ENFORCED_PAUSE_ERROR);
         stablecoin.freeze(account);
     }
 
     function test_CannotUnfreezeWhenPaused() public {
         address account = address(1);
-        vm.prank(pauser);
+        vm.prank(PAUSER);
         stablecoin.pause();
 
-        vm.prank(freezer);
+        vm.prank(FREEZER);
         vm.expectRevert(ENFORCED_PAUSE_ERROR);
         stablecoin.unfreeze(account);
     }
 
     function test_CannotAddMinterWhenPaused() public {
         address account = address(1);
-        vm.prank(pauser);
+        vm.prank(PAUSER);
         stablecoin.pause();
 
-        vm.prank(admin);
+        vm.prank(ADMIN);
         vm.expectRevert(ENFORCED_PAUSE_ERROR);
         stablecoin.addMinter(account, 1000);
     }
 
     function test_CannotAddBurnerWhenPaused() public {
         address account = address(1);
-        vm.prank(pauser);
+        vm.prank(PAUSER);
         stablecoin.pause();
 
-        vm.prank(admin);
+        vm.prank(ADMIN);
         vm.expectRevert(ENFORCED_PAUSE_ERROR);
         stablecoin.addBurner(account);
     }
@@ -212,11 +212,11 @@ contract StablecoinTest is Test {
         address otherAccount = address(2);
 
         // Freeze the account
-        vm.prank(freezer);
+        vm.prank(FREEZER);
         stablecoin.freeze(freezedAccount);
 
         // Check minting to freezed account fails
-        vm.prank(minter);
+        vm.prank(MINTER);
         vm.expectRevert("Freezed account");
         stablecoin.mint(freezedAccount, 1000);
 
@@ -225,7 +225,7 @@ contract StablecoinTest is Test {
         vm.expectRevert("Freezed account");
         stablecoin.transfer(otherAccount, 1000);
 
-        vm.prank(minter);
+        vm.prank(MINTER);
         stablecoin.mint(otherAccount, 1000);
 
         // Check transferring to freezed account fails
