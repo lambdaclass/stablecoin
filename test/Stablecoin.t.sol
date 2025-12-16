@@ -47,15 +47,6 @@ contract StablecoinTest is Test {
         assertEq(stablecoin.minterAllowance(newMinter), 0);
     }
 
-    function test_AddBurner() public {
-        address newBurner = address(1);
-        vm.prank(ADMIN);
-        stablecoin.addBurner(newBurner);
-
-        bool hasRole = stablecoin.hasRole(stablecoin.BURNER_ROLE(), newBurner);
-        assertTrue(hasRole);
-    }
-
     function test_Transfer() public {
         address sender = address(1);
         address receiver = address(2);
@@ -249,16 +240,6 @@ contract StablecoinTest is Test {
         vm.prank(ADMIN);
         vm.expectRevert(ENFORCED_PAUSE_ERROR);
         stablecoin.addMinter(account, 1000);
-    }
-
-    function test_CannotAddBurnerWhenPaused() public {
-        address account = address(1);
-        vm.prank(PAUSER);
-        stablecoin.pause();
-
-        vm.prank(ADMIN);
-        vm.expectRevert(ENFORCED_PAUSE_ERROR);
-        stablecoin.addBurner(account);
     }
 
     function test_FreezeAccount() public {
