@@ -58,6 +58,11 @@ contract Stablecoin is
         _grantRole(FREEZER_ROLE, freezer);
     }
 
+    // TODO: define the number of decimals
+    function decimals() public pure override returns (uint8) {
+        return 6;
+    }
+
     function mint(address to, uint256 value) public onlyRole(MINTER_ROLE) whenNotPaused whenNotFreezed(to) {
         require(minterAllowance[msg.sender] >= value, "Value exceeds allowance");
         minterAllowance[msg.sender] -= value;
