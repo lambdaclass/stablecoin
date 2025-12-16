@@ -82,6 +82,18 @@ Extends the `ERC20` contract with the `burn()` function, which allows token hold
 This extension of the `Ownable` contract includes a two-step mechanism to transfer ownership, where the new owner must call `acceptOwnership` in order to replace the old one. This can help prevent common mistakes, such as transfers of ownership to incorrect accounts, or to contracts that are unable to interact with the permission system. [Docs](https://docs.openzeppelin.com/contracts/5.x/api/access#Ownable2Step)
 
 
+## Stablecoin deployment
+
+The smart contract can be deployed with the following command (replace the placeholders with the actual values)
+
+```bash
+forge clean
+forge script script/DeployStablecoin.s.sol \
+    --broadcast --private-key PRIVATE_KEY --rpc-url RPC_URL \
+     --sig 'run(string,string,address,address,address,address)' \
+     NAME SYMBOL ADMIN BURNER FREEZER PAUSER
+```
+
 ## Setup 
 ### Build
 
