@@ -72,6 +72,17 @@ contract StablecoinTest is Test {
         assertEq(stablecoin.balanceOf(receiver), transferredAmount);
     }
 
+    function test_Approve() public {
+        address owner = address(1);
+        address spender = address(2);
+        uint256 amount = 1000;
+
+        vm.prank(owner);
+        assertTrue(stablecoin.approve(spender, amount));
+
+        assertEq(stablecoin.allowance(owner, spender), amount);
+    }
+
     function test_MinterCannotMintMoreThanAllowance() public {
         address newMinter = address(1);
         uint256 amount = 1000;

@@ -99,6 +99,19 @@ contract Stablecoin is
         return true;
     }
 
+    function approve(address spender, uint256 value)
+        public
+        override
+        whenNotPaused
+        whenNotFreezed(msg.sender)
+        whenNotFreezed(spender)
+        returns (bool)
+    {
+        address owner = _msgSender();
+        _approve(owner, spender, value);
+        return true;
+    }
+
     function freeze(address account) public onlyRole(FREEZER_ROLE) whenNotPaused {
         freezed[account] = true;
     }
