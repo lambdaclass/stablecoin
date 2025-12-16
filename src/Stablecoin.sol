@@ -62,47 +62,6 @@ contract Stablecoin is
         _grantRole(FREEZER_ROLE, freezer);
     }
 
-    function transfer(address to, uint256 value)
-        public
-        override
-        whenNotPaused
-        whenNotFreezed(msg.sender)
-        whenNotFreezed(to)
-        returns (bool)
-    {
-        address owner = _msgSender();
-        _transfer(owner, to, value);
-        return true;
-    }
-
-    function transferFrom(address from, address to, uint256 value)
-        public
-        override
-        whenNotPaused
-        whenNotFreezed(msg.sender)
-        whenNotFreezed(from)
-        whenNotFreezed(to)
-        returns (bool)
-    {
-        address spender = _msgSender();
-        _spendAllowance(from, spender, value);
-        _transfer(from, to, value);
-        return true;
-    }
-
-    function approve(address spender, uint256 value)
-        public
-        override
-        whenNotPaused
-        whenNotFreezed(msg.sender)
-        whenNotFreezed(spender)
-        returns (bool)
-    {
-        address owner = _msgSender();
-        _approve(owner, spender, value);
-        return true;
-    }
-
     function mint(address to, uint256 value) public onlyRole(MINTER_ROLE) whenNotPaused whenNotFreezed(to) {
         require(minterAllowance[msg.sender] >= value, "Value exceeds allowance");
         minterAllowance[msg.sender] -= value;
@@ -143,6 +102,10 @@ contract Stablecoin is
     function _update(address from, address to, uint256 value)
         internal
         override(ERC20Upgradeable, ERC20PausableUpgradeable)
+        whenNotPaused
+        whenNotFreezed(msg.sender)
+        whenNotFreezed(from)
+        whenNotFreezed(to)
     {
         super._update(from, to, value);
     }
