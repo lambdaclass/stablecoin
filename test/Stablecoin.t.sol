@@ -127,7 +127,6 @@ contract StablecoinTest is Test {
         assertFalse(stablecoin.paused());
     }
 
-    // TODO: test more functions when paused
     function test_CannotMintWhenPaused() public {
         vm.prank(PAUSER);
         stablecoin.pause();
