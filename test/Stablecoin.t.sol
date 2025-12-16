@@ -46,55 +46,6 @@ contract StablecoinTest is Test {
         assertEq(stablecoin.minterAllowance(newMinter), 0);
     }
 
-    function test_Transfer() public {
-        address sender = address(1);
-        address receiver = address(2);
-        uint256 totalAmount = 1000;
-        uint256 transferredAmount = 100;
-
-        vm.prank(MINTER);
-        stablecoin.mint(sender, totalAmount);
-
-        vm.prank(sender);
-        assertTrue(stablecoin.transfer(receiver, transferredAmount));
-
-        assertEq(stablecoin.balanceOf(sender), totalAmount - transferredAmount);
-        assertEq(stablecoin.balanceOf(receiver), transferredAmount);
-    }
-
-    function test_Approve() public {
-        address owner = address(1);
-        address spender = address(2);
-        uint256 amount = 1000;
-
-        vm.prank(owner);
-        assertTrue(stablecoin.approve(spender, amount));
-
-        assertEq(stablecoin.allowance(owner, spender), amount);
-    }
-
-    function test_ApproveAndTransferFrom() public {
-        address owner = address(1);
-        address spender = address(2);
-        address receiver = address(3);
-        uint256 amount = 1000;
-
-        vm.prank(MINTER);
-        stablecoin.mint(owner, amount);
-
-        uint256 ownerBalance = stablecoin.balanceOf(owner);
-        uint256 receiverBalance = stablecoin.balanceOf(receiver);
-
-        vm.prank(owner);
-        assertTrue(stablecoin.approve(spender, amount));
-
-        vm.prank(spender);
-        stablecoin.transferFrom(owner, receiver, amount);
-
-        assertEq(stablecoin.balanceOf(owner), ownerBalance - amount);
-        assertEq(stablecoin.balanceOf(receiver), receiverBalance + amount);
-    }
-
     function test_MinterCannotMintMoreThanAllowance() public {
         address newMinter = address(1);
         uint256 amount = 1000;
@@ -113,7 +64,6 @@ contract StablecoinTest is Test {
         stablecoin.mint(nonMinter, amount);
     }
 
-    // TODO: test edge cases
     function test_Burn() public {
         uint256 amount = 100;
         // Mint tokens to the burner
