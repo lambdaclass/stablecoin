@@ -233,4 +233,18 @@ contract StablecoinTest is Test {
         vm.expectRevert("Freezed account");
         stablecoin.transfer(freezedAccount, 1000);
     }
+
+    function test_UnfreezeAccount() public {
+        address account = address(1);
+
+        // Freeze the account
+        vm.prank(FREEZER);
+        stablecoin.freeze(account);
+        assertTrue(stablecoin.freezed(account));
+
+        // Unfreeze the account
+        vm.prank(FREEZER);
+        stablecoin.unfreeze(account);
+        assertFalse(stablecoin.freezed(account));
+    }
 }
