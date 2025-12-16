@@ -36,10 +36,6 @@ contract Stablecoin is
         _;
     }
 
-    constructor() {
-        _disableInitializers();
-    }
-
     function initialize(
         string memory name,
         string memory symbol,
