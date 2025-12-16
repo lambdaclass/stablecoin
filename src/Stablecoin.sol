@@ -90,7 +90,6 @@ contract Stablecoin is
         freezed[account] = false;
     }
 
-    // TODO: check if there are remaining functions that must be overridden with the 'whenNotPaused' modifier
     function pause() public onlyRole(PAUSER_ROLE) {
         _pause();
     }
@@ -99,6 +98,13 @@ contract Stablecoin is
         _unpause();
     }
 
+    /**
+     * @dev Updates the balances of `from` and `to` by `value`.
+     *
+     * This internal function is used by `transfer`, `transferFrom`, `mint`,
+     * `burn`, and `burnFrom`. As a result, any constraints enforced here
+     * (whenNotPaused, whenNotFreezed) also apply to all of those operations.
+     */
     function _update(address from, address to, uint256 value)
         internal
         override(ERC20Upgradeable, ERC20PausableUpgradeable)
