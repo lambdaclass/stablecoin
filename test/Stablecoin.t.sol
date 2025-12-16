@@ -56,6 +56,22 @@ contract StablecoinTest is Test {
         assertTrue(hasRole);
     }
 
+    function test_Transfer() public {
+        address sender = address(1);
+        address receiver = address(2);
+        uint256 totalAmount = 1000;
+        uint256 transferredAmount = 100;
+
+        vm.prank(minter);
+        stablecoin.mint(sender, totalAmount);
+
+        vm.prank(sender);
+        assertTrue(stablecoin.transfer(receiver, transferredAmount));
+
+        assertEq(stablecoin.balanceOf(sender), totalAmount - transferredAmount);
+        assertEq(stablecoin.balanceOf(receiver), transferredAmount);
+    }
+
     function test_MinterCannotMintMoreThanAllowance() public {
         address newMinter = address(1);
         uint256 amount = 1000;
