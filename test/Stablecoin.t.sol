@@ -20,14 +20,12 @@ contract StablecoinTest is Test {
 
     function setUp() public {
         vm.startPrank(ADMIN);
-        address impl = address(new Stablecoin());
-        address proxy = address(
-            new ERC1967Proxy(
-                impl,
-                abi.encodeCall(Stablecoin.initialize, ("Stablecoin", "Stablecoin", ADMIN, BURNER, PAUSER, FREEZER))
-            )
+        Stablecoin impl = new Stablecoin();
+        ERC1967Proxy proxy = new ERC1967Proxy(
+            address(impl),
+            abi.encodeCall(Stablecoin.initialize, ("Stablecoin", "Stablecoin", ADMIN, BURNER, PAUSER, FREEZER))
         );
-        stablecoin = Stablecoin(proxy);
+        stablecoin = Stablecoin(address(proxy));
         stablecoin.addMinter(MINTER, 1000);
         vm.stopPrank();
     }
