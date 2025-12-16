@@ -69,7 +69,7 @@ contract Stablecoin is
         grantRole(BURNER_ROLE, newBurner);
     }
 
-    function mint(address to, uint256 value) public onlyRole(MINTER_ROLE) whenNotPaused {
+    function mint(address to, uint256 value) public onlyRole(MINTER_ROLE) whenNotPaused whenNotFreezed(to) {
         require(minterAllowance[msg.sender] >= value, "Value exceeds allowance");
         minterAllowance[msg.sender] -= value;
         _mint(to, value);

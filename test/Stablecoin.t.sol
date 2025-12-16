@@ -12,13 +12,15 @@ contract StablecoinTest is Test {
     address public minter = 0x70997970C51812dc3A010C7d01b50e0d17dc79C8;
     address public burner = 0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC;
     address public pauser = 0x90F79bf6EB2c4f870365E785982E1f101E93b906;
+    address public freezer = 0x15d34AAf54267DB7D7c367839AAf71A00a2C6A65;
 
     function setUp() public {
         vm.startPrank(admin);
         address impl = address(new Stablecoin());
         address proxy = address(
             new ERC1967Proxy(
-                impl, abi.encodeCall(Stablecoin.initialize, ("Stablecoin", "Stablecoin", admin, burner, pauser))
+                impl,
+                abi.encodeCall(Stablecoin.initialize, ("Stablecoin", "Stablecoin", admin, burner, pauser, freezer))
             )
         );
         stablecoin = Stablecoin(proxy);
@@ -111,5 +113,32 @@ contract StablecoinTest is Test {
         vm.expectRevert();
         vm.prank(minter);
         stablecoin.mint(minter, 1000);
+    }
+
+    function test_FreezeAccount() public {
+        address freezedAccount = address(1);
+        address otherAccount = address(2);
+
+        // Freeze the account
+        vm.prank(freezer);
+        stablecoin.freeze(freezedAccount);
+
+        // Check minting to freezed account fails
+        vm.prank(minter);
+        vm.expectRevert("Freezed account");
+        stablecoin.mint(freezedAccount, 1000);
+
+        // Check transferring from freezed account fails
+        vm.prank(freezedAccount);
+        vm.expectRevert("Freezed account");
+        stablecoin.transfer(otherAccount, 1000);
+
+        vm.prank(minter);
+        stablecoin.mint(otherAccount, 1000);
+
+        // Check transferring to freezed account fails
+        vm.prank(otherAccount);
+        vm.expectRevert("Freezed account");
+        stablecoin.transfer(freezedAccount, 1000);
     }
 }
