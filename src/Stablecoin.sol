@@ -107,6 +107,7 @@ contract Stablecoin is
         freezed[account] = false;
     }
 
+    // TODO: check if there are remaining functions that must be overridden with the 'whenNotPaused' modifier
     function pause() public onlyRole(PAUSER_ROLE) {
         _pause();
     }
