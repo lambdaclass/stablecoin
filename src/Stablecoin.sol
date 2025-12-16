@@ -62,26 +62,6 @@ contract Stablecoin is
         _grantRole(FREEZER_ROLE, freezer);
     }
 
-    function addMinter(address newMinter, uint256 amount) public onlyRole(ADMIN_ROLE) whenNotPaused {
-        minterAllowance[newMinter] = amount;
-        grantRole(MINTER_ROLE, newMinter);
-    }
-
-    function mint(address to, uint256 value) public onlyRole(MINTER_ROLE) whenNotPaused whenNotFreezed(to) {
-        require(minterAllowance[msg.sender] >= value, "Value exceeds allowance");
-        minterAllowance[msg.sender] -= value;
-        _mint(to, value);
-    }
-
-    function burn(uint256 value) public override onlyRole(BURNER_ROLE) whenNotPaused {
-        _burn(_msgSender(), value);
-    }
-
-    function burnFrom(address account, uint256 value) public override onlyRole(BURNER_ROLE) whenNotPaused {
-        _spendAllowance(account, _msgSender(), value);
-        _burn(account, value);
-    }
-
     function transfer(address to, uint256 value)
         public
         override
@@ -121,6 +101,26 @@ contract Stablecoin is
         address owner = _msgSender();
         _approve(owner, spender, value);
         return true;
+    }
+
+    function mint(address to, uint256 value) public onlyRole(MINTER_ROLE) whenNotPaused whenNotFreezed(to) {
+        require(minterAllowance[msg.sender] >= value, "Value exceeds allowance");
+        minterAllowance[msg.sender] -= value;
+        _mint(to, value);
+    }
+
+    function burn(uint256 value) public override onlyRole(BURNER_ROLE) whenNotPaused {
+        _burn(_msgSender(), value);
+    }
+
+    function burnFrom(address account, uint256 value) public override onlyRole(BURNER_ROLE) whenNotPaused {
+        _spendAllowance(account, _msgSender(), value);
+        _burn(account, value);
+    }
+
+    function addMinter(address newMinter, uint256 amount) public onlyRole(ADMIN_ROLE) whenNotPaused {
+        minterAllowance[newMinter] = amount;
+        grantRole(MINTER_ROLE, newMinter);
     }
 
     function freeze(address account) public onlyRole(FREEZER_ROLE) whenNotPaused {
