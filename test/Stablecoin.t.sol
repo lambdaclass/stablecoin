@@ -165,6 +165,16 @@ contract StablecoinTest is Test {
         stablecoin.burn(amount);
     }
 
+    function test_PauseUnpause() public {
+        vm.prank(PAUSER);
+        stablecoin.pause();
+        assertTrue(stablecoin.paused());
+
+        vm.prank(PAUSER);
+        stablecoin.unpause();
+        assertFalse(stablecoin.paused());
+    }
+
     // TODO: test more functions when paused
     function test_CannotMintWhenPaused() public {
         vm.prank(PAUSER);
