@@ -60,7 +60,11 @@ contract StablecoinTest is Test {
     function test_NonMinterAccountCannotMint() public {
         address nonMinter = address(2);
         uint256 amount = 1000;
-        vm.expectRevert();
+        bytes memory expectedError = abi.encodeWithSignature(
+            "AccessControlUnauthorizedAccount(address,bytes32)", nonMinter, stablecoin.MINTER_ROLE()
+        );
+        vm.prank(nonMinter);
+        vm.expectRevert(expectedError);
         stablecoin.mint(nonMinter, amount);
     }
 
@@ -100,9 +104,17 @@ contract StablecoinTest is Test {
     function test_NonBurnerAccountCannotBurn() public {
         address nonBurnerAccount = address(3);
         uint256 amount = 1000;
+        bytes memory expectedError = abi.encodeWithSignature(
+            "AccessControlUnauthorizedAccount(address,bytes32)", nonBurnerAccount, stablecoin.BURNER_ROLE()
+        );
+
         vm.prank(nonBurnerAccount);
-        vm.expectRevert();
+        vm.expectRevert(expectedError);
         stablecoin.burn(amount);
+
+        vm.prank(nonBurnerAccount);
+        vm.expectRevert(expectedError);
+        stablecoin.burnFrom(nonBurnerAccount, amount);
     }
 
     function test_PauseUnpause() public {
