@@ -89,6 +89,11 @@ contract Stablecoin is
         revokeRole(MINTER_ROLE, minter);
     }
 
+    function increaseMinterAllowance(address minter, uint256 allowance) public onlyRole(ADMIN_ROLE) whenNotPaused {
+        minterAllowance[minter] += allowance;
+        revokeRole(MINTER_ROLE, minter);
+    }
+
     function freeze(address account) public onlyRole(FREEZER_ROLE) whenNotPaused {
         frozen[account] = true;
     }

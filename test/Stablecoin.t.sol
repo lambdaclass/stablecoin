@@ -72,6 +72,30 @@ contract StablecoinTest is Test {
         assertEq(stablecoin.minterAllowance(newMinter), 0);
     }
 
+    function test_IncreaseMinterAllowance() public {
+        uint256 amount = 1000;
+        uint256 minterAllowance = stablecoin.minterAllowance(MINTER);
+
+        vm.startPrank(ADMIN);
+        stablecoin.increaseMinterAllowance(MINTER, amount);
+        vm.stopPrank();
+
+        assertEq(stablecoin.minterAllowance(MINTER), minterAllowance + amount);
+    }
+
+    function test_OnlyAdminCanIncreaseMinterAllowance() public {
+        address nonAdmin = address(2);
+        uint256 amount = 1000;
+
+        bytes memory expectedError = abi.encodeWithSignature(
+            "AccessControlUnauthorizedAccount(address,bytes32)", nonAdmin, stablecoin.ADMIN_ROLE()
+        );
+
+        vm.prank(nonAdmin);
+        vm.expectRevert(expectedError);
+        stablecoin.increaseMinterAllowance(MINTER, amount);
+    }
+
     function test_OnlyAdminCanRemoveMinter() public {
         address newMinter = address(1);
         uint256 amount = 1000;
