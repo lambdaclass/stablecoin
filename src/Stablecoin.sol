@@ -46,6 +46,7 @@ contract Stablecoin is
     ) public initializer {
         __ERC20_init(name, symbol);
         __ERC20Burnable_init();
+        __ERC20Pausable_init();
         __AccessControl_init();
 
         _setRoleAdmin(MINTER_ROLE, ADMIN_ROLE);
