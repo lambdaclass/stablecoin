@@ -54,6 +54,7 @@ contract Stablecoin is
         __ERC20Pausable_init();
         __AccessControl_init();
 
+        // TODO: define whether the ADMIN_ROLE should have a role admin
         _setRoleAdmin(MINTER_ROLE, ADMIN_ROLE);
         _setRoleAdmin(BURNER_ROLE, ADMIN_ROLE);
         _setRoleAdmin(PAUSER_ROLE, ADMIN_ROLE);
