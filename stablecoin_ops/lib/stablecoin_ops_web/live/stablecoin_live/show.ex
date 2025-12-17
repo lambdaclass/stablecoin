@@ -25,6 +25,19 @@ defmodule StablecoinOpsWeb.StablecoinLive.Show do
         <:item title="Symbol">{@stablecoin.symbol}</:item>
         <:item title="Decimals">{@stablecoin.decimals}</:item>
       </.list>
+      <section class="mt-8">
+        <h2 class="text-lg font-semibold mb-4">Deployments</h2>
+        <%= if Enum.empty?(@stablecoin.deployments) do %>
+          <p class="text-zinc-500 dark:text-zinc-400">No deployments yet.</p>
+        <% else %>
+          <.table id="deployments" rows={@stablecoin.deployments}>
+            <:col :let={deployment} label="Network">{deployment.network.name}</:col>
+            <:col :let={deployment} label="Address">
+              <code class="text-sm font-mono">{deployment.address}</code>
+            </:col>
+          </.table>
+        <% end %>
+      </section>
     </Layouts.app>
     """
   end
@@ -34,6 +47,6 @@ defmodule StablecoinOpsWeb.StablecoinLive.Show do
     {:ok,
      socket
      |> assign(:page_title, "Show Stablecoin")
-     |> assign(:stablecoin, Stablecoins.get_stablecoin!(id))}
+     |> assign(:stablecoin, Stablecoins.get_stablecoin_with_deployments!(id))}
   end
 end

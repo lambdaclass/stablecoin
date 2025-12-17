@@ -6,7 +6,7 @@ defmodule StablecoinOps.Stablecoins do
   import Ecto.Query, warn: false
   alias StablecoinOps.Repo
 
-  alias StablecoinOps.Stablecoins.Stablecoin
+  alias StablecoinOps.Stablecoins.{Stablecoin, StablecoinDeployment}
 
   @doc """
   Returns the list of stablecoins.
@@ -99,7 +99,9 @@ defmodule StablecoinOps.Stablecoins do
 
   """
   def change_stablecoin(%Stablecoin{} = stablecoin, attrs \\ %{}) do
-    Stablecoin.changeset(stablecoin, attrs)
+    stablecoin
+    |> Repo.preload(:deployments)
+    |> Stablecoin.changeset(attrs)
   end
 
   alias StablecoinOps.Stablecoins.StablecoinDeployment
@@ -196,5 +198,18 @@ defmodule StablecoinOps.Stablecoins do
   """
   def change_stablecoin_deployment(%StablecoinDeployment{} = stablecoin_deployment, attrs \\ %{}) do
     StablecoinDeployment.changeset(stablecoin_deployment, attrs)
+  end
+
+  def add_deployment(%Stablecoin{} = stablecoin, attrs) do
+    %StablecoinDeployment{}
+    |> StablecoinDeployment.changeset(attrs)
+    |> Ecto.Changeset.put_assoc(:stablecoin, stablecoin)
+    |> Repo.insert()
+  end
+
+  def get_stablecoin_with_deployments!(id) do
+    Stablecoin
+    |> Repo.get!(id)
+    |> Repo.preload(deployments: :network)
   end
 end

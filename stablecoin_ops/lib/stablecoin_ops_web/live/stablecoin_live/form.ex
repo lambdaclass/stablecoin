@@ -2,7 +2,8 @@ defmodule StablecoinOpsWeb.StablecoinLive.Form do
   use StablecoinOpsWeb, :live_view
 
   alias StablecoinOps.Stablecoins
-  alias StablecoinOps.Stablecoins.Stablecoin
+  alias StablecoinOps.Stablecoins.{Stablecoin, StablecoinDeployment}
+  alias StablecoinOps.Networks
 
   @impl true
   def render(assigns) do
@@ -17,9 +18,48 @@ defmodule StablecoinOpsWeb.StablecoinLive.Form do
         <.input field={@form[:name]} type="text" label="Name" />
         <.input field={@form[:symbol]} type="text" label="Symbol" />
         <.input field={@form[:decimals]} type="number" label="Decimals" />
-        <footer>
+
+        <section class="mt-8 border-t border-zinc-200 dark:border-zinc-700 pt-6">
+          <div class="flex items-center justify-between mb-4">
+            <h2 class="text-lg font-semibold">Deployments</h2>
+            <.button type="button" phx-click="add_deployment">
+              <.icon name="hero-plus" class="w-4 h-4 mr-1" /> Add Deployment
+            </.button>
+          </div>
+
+          <.inputs_for :let={deployment_form} field={@form[:deployments]}>
+            <div class="flex gap-4 items-end mb-4 p-4 bg-zinc-50 dark:bg-zinc-800 rounded-lg">
+              <input type="hidden" name="stablecoin[deployments_order][]" value={deployment_form.index} />
+              <div class="flex-1">
+                <.input
+                  field={deployment_form[:network_id]}
+                  type="select"
+                  label="Network"
+                  options={Enum.map(@networks, &{&1.name, &1.id})}
+                  prompt="Select network"
+                />
+              </div>
+              <div class="flex-[2]">
+                <.input field={deployment_form[:address]} type="text" label="Contract Address" />
+              </div>
+              <.button
+                type="button"
+                name="stablecoin[deployments_drop][]"
+                value={deployment_form.index}
+                phx-click={JS.dispatch("change")}
+                class="text-red-600 hover:text-red-800"
+              >
+                <.icon name="hero-trash" class="w-5 h-5" />
+              </.button>
+            </div>
+          </.inputs_for>
+
+          <input type="hidden" name="stablecoin[deployments_drop][]" />
+        </section>
+
+        <footer class="mt-6">
           <.button phx-disable-with="Saving..." variant="primary">Save Stablecoin</.button>
-          <.button navigate={return_path(@return_to, @stablecoin)}>Cancel</.button>
+          <.button type="button" navigate={return_path(@return_to, @stablecoin)}>Cancel</.button>
         </footer>
       </.form>
     </Layouts.app>
@@ -31,6 +71,7 @@ defmodule StablecoinOpsWeb.StablecoinLive.Form do
     {:ok,
      socket
      |> assign(:return_to, return_to(params["return_to"]))
+     |> assign(:networks, Networks.list_networks())
      |> apply_action(socket.assigns.live_action, params)}
   end
 
@@ -38,7 +79,7 @@ defmodule StablecoinOpsWeb.StablecoinLive.Form do
   defp return_to(_), do: "index"
 
   defp apply_action(socket, :edit, %{"id" => id}) do
-    stablecoin = Stablecoins.get_stablecoin!(id)
+    stablecoin = Stablecoins.get_stablecoin_with_deployments!(id)
 
     socket
     |> assign(:page_title, "Edit Stablecoin")
@@ -47,7 +88,7 @@ defmodule StablecoinOpsWeb.StablecoinLive.Form do
   end
 
   defp apply_action(socket, :new, _params) do
-    stablecoin = %Stablecoin{}
+    stablecoin = %Stablecoin{deployments: []}
 
     socket
     |> assign(:page_title, "New Stablecoin")
@@ -57,8 +98,24 @@ defmodule StablecoinOpsWeb.StablecoinLive.Form do
 
   @impl true
   def handle_event("validate", %{"stablecoin" => stablecoin_params}, socket) do
-    changeset = Stablecoins.change_stablecoin(socket.assigns.stablecoin, stablecoin_params)
-    {:noreply, assign(socket, form: to_form(changeset, action: :validate))}
+    changeset =
+      socket.assigns.stablecoin
+      |> Stablecoins.change_stablecoin(stablecoin_params)
+      |> Map.put(:action, :validate)
+
+    {:noreply, assign(socket, form: to_form(changeset))}
+  end
+
+  def handle_event("add_deployment", _, socket) do
+    changeset = socket.assigns.form.source
+
+    existing_deployments = Ecto.Changeset.get_assoc(changeset, :deployments)
+    new_deployment = %StablecoinDeployment{}
+
+    updated_changeset =
+      Ecto.Changeset.put_assoc(changeset, :deployments, existing_deployments ++ [new_deployment])
+
+    {:noreply, assign(socket, form: to_form(updated_changeset))}
   end
 
   def handle_event("save", %{"stablecoin" => stablecoin_params}, socket) do
