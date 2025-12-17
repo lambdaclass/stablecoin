@@ -18,10 +18,18 @@ defmodule StablecoinOpsWeb.Router do
     pipe_through(:browser)
 
     get("/", PageController, :home)
+
+    # networks
     live("/networks", NetworkLive.Index, :index)
     live("/networks/new", NetworkLive.Form, :new)
     live("/networks/:id", NetworkLive.Show, :show)
     live("/networks/:id/edit", NetworkLive.Form, :edit)
+
+    # stablecoins
+    live("/stablecoins", StablecoinLive.Index, :index)
+    live("/stablecoins/new", StablecoinLive.Form, :new)
+    live("/stablecoins/:id", StablecoinLive.Show, :show)
+    live("/stablecoins/:id/edit", StablecoinLive.Form, :edit)
   end
 
   # Other scopes may use custom stacks.
