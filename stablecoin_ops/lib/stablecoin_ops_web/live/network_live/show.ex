@@ -22,7 +22,7 @@ defmodule StablecoinOpsWeb.NetworkLive.Show do
 
       <.list>
         <:item title="Name">{@network.name}</:item>
-        <:item title="Chain">{@network.chain_id}</:item>
+        <:item title="Chain ID">{@network.chain_id}</:item>
       </.list>
     </Layouts.app>
     """

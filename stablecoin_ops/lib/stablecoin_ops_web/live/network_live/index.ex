@@ -22,7 +22,7 @@ defmodule StablecoinOpsWeb.NetworkLive.Index do
         row_click={fn {_id, network} -> JS.navigate(~p"/networks/#{network}") end}
       >
         <:col :let={{_id, network}} label="Name">{network.name}</:col>
-        <:col :let={{_id, network}} label="Chain">{network.chain_id}</:col>
+        <:col :let={{_id, network}} label="Chain ID">{network.chain_id}</:col>
         <:action :let={{_id, network}}>
           <div class="sr-only">
             <.link navigate={~p"/networks/#{network}"}>Show</.link>

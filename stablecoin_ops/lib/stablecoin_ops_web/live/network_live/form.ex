@@ -15,7 +15,7 @@ defmodule StablecoinOpsWeb.NetworkLive.Form do
 
       <.form for={@form} id="network-form" phx-change="validate" phx-submit="save">
         <.input field={@form[:name]} type="text" label="Name" />
-        <.input field={@form[:chain_id]} type="number" label="Chain" />
+        <.input field={@form[:chain_id]} type="number" label="Chain ID" />
         <footer>
           <.button phx-disable-with="Saving..." variant="primary">Save Network</.button>
           <.button navigate={return_path(@return_to, @network)}>Cancel</.button>
