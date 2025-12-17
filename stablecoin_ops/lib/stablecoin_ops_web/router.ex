@@ -17,7 +17,7 @@ defmodule StablecoinOpsWeb.Router do
   scope "/", StablecoinOpsWeb do
     pipe_through(:browser)
 
-    get("/", PageController, :home)
+    live("/", HomeLive, :index)
 
     # networks
     live("/networks", NetworkLive.Index, :index)
