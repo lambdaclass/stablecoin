@@ -6,7 +6,7 @@ defmodule StablecoinOpsWeb.HomeLive do
     ~H"""
     <Layouts.app flash={@flash}>
       <div class="max-w-4xl mx-auto">
-        <.header class="text-center">
+        <.header>
           Manage your stablecoins and networks
         </.header>
 
