@@ -111,11 +111,20 @@ To upgrade the stablecoin from a Safe smart account, run the following steps.
 
 Head to the [script/DeployNewImplementation.s.sol](script/DeployNewImplementation.s.sol) script and update it so that it deploys the new implementation instead of the default `Stablecoin.sol` contract. Also, make sure the new implementation contract includes a [`@custom:oz-upgrades-from` reference](https://docs.openzeppelin.com/upgrades-plugins/api-core#define-reference-contracts) to validate whether the upgrade is safe.
 
-To deploy the new implementation, run the following command (make sure to set the right `RPC_URL`)
+To deploy the new implementation, run the following command (make sure to set the right `RPC_URL` and `CONTRACT_NAME`)
 
 ```bash
 forge clean
-forge script script/DeployNewImplementation.s.sol --broadcast --rpc-url RPC_URL
+forge script script/DeployNewImplementation.s.sol --broadcast --rpc-url RPC_URL \
+    --sig 'run(string)' CONTRACT_NAME
+```
+
+**Example**
+
+```bash
+forge clean
+forge script script/DeployNewImplementation.s.sol --broadcast --rpc-url http://localhost:8545 \
+    --sig 'run(string)' Stablecoin.sol
 ```
 
 #### 2. Build the upgrade transaction on Safe
