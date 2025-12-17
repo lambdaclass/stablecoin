@@ -28,11 +28,11 @@ contract Stablecoin is
     bytes32 public constant PAUSER_ROLE = keccak256("PAUSER_ROLE");
 
     mapping(address => uint256) public minterAllowance;
-    // Freezed accounts
-    mapping(address => bool) public freezed;
+    // Frozen accounts
+    mapping(address => bool) public frozen;
 
-    modifier whenNotFreezed(address account) {
-        _whenNotFreezed(account);
+    modifier whenNotFrozen(address account) {
+        _whenNotFrozen(account);
         _;
     }
 
@@ -85,11 +85,11 @@ contract Stablecoin is
     }
 
     function freeze(address account) public onlyRole(FREEZER_ROLE) whenNotPaused {
-        freezed[account] = true;
+        frozen[account] = true;
     }
 
     function unfreeze(address account) public onlyRole(FREEZER_ROLE) whenNotPaused {
-        freezed[account] = false;
+        frozen[account] = false;
     }
 
     function pause() public onlyRole(PAUSER_ROLE) {
@@ -105,22 +105,22 @@ contract Stablecoin is
      *
      * This internal function is used by `transfer`, `transferFrom`, `mint`,
      * `burn`, and `burnFrom`. As a result, any constraints enforced here
-     * (whenNotPaused, whenNotFreezed) also apply to all of those operations.
+     * (whenNotPaused, whenNotFrozen) also apply to all of those operations.
      */
     function _update(address from, address to, uint256 value)
         internal
         override(ERC20Upgradeable, ERC20PausableUpgradeable)
         whenNotPaused
-        whenNotFreezed(msg.sender)
-        whenNotFreezed(from)
-        whenNotFreezed(to)
+        whenNotFrozen(msg.sender)
+        whenNotFrozen(from)
+        whenNotFrozen(to)
     {
         super._update(from, to, value);
     }
 
     function _authorizeUpgrade(address newImplementation) internal override onlyRole(ADMIN_ROLE) {}
 
-    function _whenNotFreezed(address account) internal view {
-        require(!freezed[account], "Freezed account");
+    function _whenNotFrozen(address account) internal view {
+        require(!frozen[account], "Frozen account");
     }
 }
