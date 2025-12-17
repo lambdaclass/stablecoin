@@ -129,11 +129,14 @@ cat out/Stablecoin.sol/Stablecoin.json | jq .abi > Stablecoin.abi
 
 This will write the `Stablecoin` ABI to the `Stablecoin.abi` file.
 
-Then, navigate to [https://app.safe.global](https://app.safe.global), and create a new transaction using the **Transaction Builder** in the corresponding Safe wallet. In the transaction builder, follow these steps:
-* Paste the abi in the **Enter ABI** field.
-* Select the `upgradeToAndCall` selector for the **Contract Method Selector** field.
-* Fill the `newImplementation` field with the address of the new implementation deployed in the step 1.
-* Fill the `data` field with `0x`. 
+Then, navigate to [https://app.safe.global](https://app.safe.global), and create a new transaction using the **Transaction Builder**. In the transaction builder, fill the required fields as follows:
+* **Enter Address or ENS Name:** enter the Stablecoin proxy address.
+* **Enter ABI:** paste the generated ABI.
+* **To Address:** enter the Stablecoin proxy address.
+* **ETH value:** fill it with 0.
+* **Contract Method Selector:** select the `upgradeToAndCall` function.
+* **newImplementation:** enter the address of the new implementation (deployed in the step 1).
+* **data:** enter `0x`.
 
 Then, follow the steps to create the transaction, and wait for the signers to sign the transaction.
 
