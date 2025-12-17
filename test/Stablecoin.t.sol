@@ -46,6 +46,48 @@ contract StablecoinTest is Test {
         assertEq(stablecoin.minterAllowance(newMinter), 0);
     }
 
+    function test_OnlyAdminCanAddMinter() public {
+        address newMinter = address(1);
+        uint256 amount = 1000;
+        address nonAdmin = address(2);
+
+        bytes memory expectedError = abi.encodeWithSignature(
+            "AccessControlUnauthorizedAccount(address,bytes32)", nonAdmin, stablecoin.ADMIN_ROLE()
+        );
+        vm.prank(nonAdmin);
+        vm.expectRevert(expectedError);
+        stablecoin.addMinter(newMinter, amount);
+    }
+
+    function test_RemoveMinter() public {
+        address newMinter = address(1);
+        uint256 amount = 1000;
+        vm.startPrank(ADMIN);
+        stablecoin.addMinter(newMinter, amount);
+        stablecoin.removeMinter(newMinter);
+        vm.stopPrank();
+
+        // Check the role is revoked and allowance is set to 0
+        assertFalse(stablecoin.hasRole(stablecoin.MINTER_ROLE(), newMinter));
+        assertEq(stablecoin.minterAllowance(newMinter), 0);
+    }
+
+    function test_OnlyAdminCanRemoveMinter() public {
+        address newMinter = address(1);
+        uint256 amount = 1000;
+        address nonAdmin = address(2);
+
+        vm.prank(ADMIN);
+        stablecoin.addMinter(newMinter, amount);
+
+        bytes memory expectedError = abi.encodeWithSignature(
+            "AccessControlUnauthorizedAccount(address,bytes32)", nonAdmin, stablecoin.ADMIN_ROLE()
+        );
+        vm.prank(nonAdmin);
+        vm.expectRevert(expectedError);
+        stablecoin.removeMinter(newMinter);
+    }
+
     function test_MinterCannotMintMoreThanAllowance() public {
         address newMinter = address(1);
         uint256 amount = 1000;
