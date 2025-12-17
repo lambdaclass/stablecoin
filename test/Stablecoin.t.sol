@@ -378,4 +378,17 @@ contract StablecoinTest is Test {
         stablecoin.unfreeze(account);
         assertFalse(stablecoin.frozen(account));
     }
+
+    function test_NonAdminCannotUpgrade() public {
+        address nonAdmin = address(1);
+        address newImplementation = address(2);
+        bytes memory data = hex"";
+        bytes memory expectedError = abi.encodeWithSignature(
+            "AccessControlUnauthorizedAccount(address,bytes32)", nonAdmin, stablecoin.ADMIN_ROLE()
+        );
+
+        vm.prank(nonAdmin);
+        vm.expectRevert(expectedError);
+        stablecoin.upgradeToAndCall(newImplementation, data);
+    }
 }
