@@ -2,7 +2,6 @@
 pragma solidity ^0.8.13;
 
 import {Script, console} from "forge-std/Script.sol";
-import {Stablecoin} from "src/Stablecoin.sol";
 import {Upgrades} from "@openzeppelin-foundry-upgrades/Upgrades.sol";
 import {Options} from "openzeppelin-foundry-upgrades/Options.sol";
 
