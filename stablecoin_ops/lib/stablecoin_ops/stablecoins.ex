@@ -18,7 +18,9 @@ defmodule StablecoinOps.Stablecoins do
 
   """
   def list_stablecoins do
-    Repo.all(Stablecoin)
+    Stablecoin
+    |> Repo.all()
+    |> Repo.preload(deployments: :network)
   end
 
   @doc """

@@ -24,6 +24,21 @@ defmodule StablecoinOpsWeb.StablecoinLive.Index do
         <:col :let={{_id, stablecoin}} label="Name">{stablecoin.name}</:col>
         <:col :let={{_id, stablecoin}} label="Symbol">{stablecoin.symbol}</:col>
         <:col :let={{_id, stablecoin}} label="Decimals">{stablecoin.decimals}</:col>
+        <:col :let={{_id, stablecoin}} label="Networks">
+          <div class="flex flex-wrap gap-1">
+            <%= for deployment <- stablecoin.deployments do %>
+              <span
+                id={"deployment-#{deployment.id}"}
+                phx-hook="CopyToClipboard"
+                data-clipboard-text={deployment.address}
+                class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200 cursor-pointer transition-colors hover:bg-blue-200 dark:hover:bg-blue-800"
+                title={"Click to copy: #{deployment.address}"}
+              >
+                {deployment.network.name}
+            </span>
+            <% end %>
+          </div>
+        </:col>
         <:action :let={{_id, stablecoin}}>
           <div class="sr-only">
             <.link navigate={~p"/stablecoins/#{stablecoin}"}>Show</.link>

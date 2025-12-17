@@ -25,11 +25,28 @@ import {LiveSocket} from "phoenix_live_view"
 import {hooks as colocatedHooks} from "phoenix-colocated/stablecoin_ops"
 import topbar from "../vendor/topbar"
 
+let hooks = {}
+hooks.CopyToClipboard = {
+  mounted() {
+    this.el.addEventListener("click", (e) => {
+      e.stopPropagation()
+      const text = this.el.dataset.clipboardText
+      navigator.clipboard.writeText(text).then(() => {
+        const original = this.el.textContent
+        this.el.textContent = "Copied!"
+        setTimeout(() => {
+          this.el.textContent = original
+        }, 1000)
+      })
+    })
+  }
+}
+
 const csrfToken = document.querySelector("meta[name='csrf-token']").getAttribute("content")
 const liveSocket = new LiveSocket("/live", Socket, {
   longPollFallbackMs: 2500,
   params: {_csrf_token: csrfToken},
-  hooks: {...colocatedHooks},
+  hooks: {...colocatedHooks, ...hooks},
 })
 
 // Show progress bar on live navigation and form submits
