@@ -138,11 +138,11 @@ forge build
 cat out/Stablecoin.sol/Stablecoin.json | jq .abi > Stablecoin.abi
 ```
 
-This will write the `Stablecoin` ABI to the `Stablecoin.abi` file.
+This will create a `Stablecoin.abi` file containing the `Stablecoin` ABI.
 
 Then, navigate to [https://app.safe.global](https://app.safe.global), and create a new transaction using the **Transaction Builder**. In the transaction builder, fill the required fields as follows:
 * **Enter Address or ENS Name:** enter the Stablecoin proxy address.
-* **Enter ABI:** paste the generated ABI.
+* **Enter ABI:** paste the generated ABI (from the `Stablecoin.abi` file).
 * **To Address:** enter the Stablecoin proxy address.
 * **ETH value:** fill it with 0.
 * **Contract Method Selector:** select the `upgradeToAndCall` function.
