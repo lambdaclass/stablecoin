@@ -34,6 +34,8 @@ contract StablecoinTest is Test {
         address newMinter = address(1);
         uint256 amount = 1000;
         vm.prank(ADMIN);
+        vm.expectEmit();
+        emit Stablecoin.MinterAdded(newMinter, amount);
         stablecoin.addMinter(newMinter, amount);
 
         bool hasRole = stablecoin.hasRole(stablecoin.MINTER_ROLE(), newMinter);
@@ -64,6 +66,8 @@ contract StablecoinTest is Test {
         uint256 amount = 1000;
         vm.startPrank(ADMIN);
         stablecoin.addMinter(newMinter, amount);
+        vm.expectEmit();
+        emit Stablecoin.MinterRemoved(newMinter);
         stablecoin.removeMinter(newMinter);
         vm.stopPrank();
 
@@ -370,11 +374,15 @@ contract StablecoinTest is Test {
 
         // Freeze the account
         vm.prank(FREEZER);
+        vm.expectEmit();
+        emit Stablecoin.AccountFrozen(account);
         stablecoin.freeze(account);
         assertTrue(stablecoin.frozen(account));
 
         // Unfreeze the account
         vm.prank(FREEZER);
+        vm.expectEmit();
+        emit Stablecoin.AccountUnfrozen(account);
         stablecoin.unfreeze(account);
         assertFalse(stablecoin.frozen(account));
     }

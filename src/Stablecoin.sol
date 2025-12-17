@@ -31,6 +31,11 @@ contract Stablecoin is
     // Frozen accounts
     mapping(address => bool) public frozen;
 
+    event MinterAdded(address indexed minter, uint256 allowance);
+    event MinterRemoved(address indexed minter);
+    event AccountFrozen(address indexed account);
+    event AccountUnfrozen(address indexed account);
+
     modifier whenNotFrozen(address account) {
         _whenNotFrozen(account);
         _;
@@ -79,14 +84,16 @@ contract Stablecoin is
         _burn(account, value);
     }
 
-    function addMinter(address newMinter, uint256 amount) public onlyRole(ADMIN_ROLE) whenNotPaused {
-        minterAllowance[newMinter] = amount;
+    function addMinter(address newMinter, uint256 allowance) public onlyRole(ADMIN_ROLE) whenNotPaused {
+        minterAllowance[newMinter] = allowance;
         grantRole(MINTER_ROLE, newMinter);
+        emit MinterAdded(newMinter, allowance);
     }
 
     function removeMinter(address minter) public onlyRole(ADMIN_ROLE) whenNotPaused {
         minterAllowance[minter] = 0;
         revokeRole(MINTER_ROLE, minter);
+        emit MinterRemoved(minter);
     }
 
     function increaseMinterAllowance(address minter, uint256 allowance) public onlyRole(ADMIN_ROLE) whenNotPaused {
@@ -95,10 +102,12 @@ contract Stablecoin is
 
     function freeze(address account) public onlyRole(FREEZER_ROLE) whenNotPaused {
         frozen[account] = true;
+        emit AccountFrozen(account);
     }
 
     function unfreeze(address account) public onlyRole(FREEZER_ROLE) whenNotPaused {
         frozen[account] = false;
+        emit AccountUnfrozen(account);
     }
 
     function pause() public onlyRole(PAUSER_ROLE) {
