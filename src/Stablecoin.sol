@@ -28,11 +28,16 @@ contract Stablecoin is
     bytes32 public constant PAUSER_ROLE = keccak256("PAUSER_ROLE");
 
     mapping(address => uint256) public minterAllowance;
-    // Freezed accounts
-    mapping(address => bool) public freezed;
+    // Frozen accounts
+    mapping(address => bool) public frozen;
 
-    modifier whenNotFreezed(address account) {
-        _whenNotFreezed(account);
+    event MinterAdded(address indexed minter, uint256 allowance);
+    event MinterRemoved(address indexed minter);
+    event AccountFrozen(address indexed account);
+    event AccountUnfrozen(address indexed account);
+
+    modifier whenNotFrozen(address account) {
+        _whenNotFrozen(account);
         _;
     }
 
@@ -46,8 +51,10 @@ contract Stablecoin is
     ) public initializer {
         __ERC20_init(name, symbol);
         __ERC20Burnable_init();
+        __ERC20Pausable_init();
         __AccessControl_init();
 
+        // TODO: define whether the ADMIN_ROLE should have a role admin
         _setRoleAdmin(MINTER_ROLE, ADMIN_ROLE);
         _setRoleAdmin(BURNER_ROLE, ADMIN_ROLE);
         _setRoleAdmin(PAUSER_ROLE, ADMIN_ROLE);
@@ -78,17 +85,30 @@ contract Stablecoin is
         _burn(account, value);
     }
 
-    function addMinter(address newMinter, uint256 amount) public onlyRole(ADMIN_ROLE) whenNotPaused {
-        minterAllowance[newMinter] = amount;
+    function addMinter(address newMinter, uint256 allowance) public onlyRole(ADMIN_ROLE) whenNotPaused {
+        minterAllowance[newMinter] = allowance;
         grantRole(MINTER_ROLE, newMinter);
+        emit MinterAdded(newMinter, allowance);
+    }
+
+    function removeMinter(address minter) public onlyRole(ADMIN_ROLE) whenNotPaused {
+        minterAllowance[minter] = 0;
+        revokeRole(MINTER_ROLE, minter);
+        emit MinterRemoved(minter);
+    }
+
+    function increaseMinterAllowance(address minter, uint256 allowance) public onlyRole(ADMIN_ROLE) whenNotPaused {
+        minterAllowance[minter] += allowance;
     }
 
     function freeze(address account) public onlyRole(FREEZER_ROLE) whenNotPaused {
-        freezed[account] = true;
+        frozen[account] = true;
+        emit AccountFrozen(account);
     }
 
     function unfreeze(address account) public onlyRole(FREEZER_ROLE) whenNotPaused {
-        freezed[account] = false;
+        frozen[account] = false;
+        emit AccountUnfrozen(account);
     }
 
     function pause() public onlyRole(PAUSER_ROLE) {
@@ -104,22 +124,22 @@ contract Stablecoin is
      *
      * This internal function is used by `transfer`, `transferFrom`, `mint`,
      * `burn`, and `burnFrom`. As a result, any constraints enforced here
-     * (whenNotPaused, whenNotFreezed) also apply to all of those operations.
+     * (whenNotPaused, whenNotFrozen) also apply to all of those operations.
      */
     function _update(address from, address to, uint256 value)
         internal
         override(ERC20Upgradeable, ERC20PausableUpgradeable)
         whenNotPaused
-        whenNotFreezed(msg.sender)
-        whenNotFreezed(from)
-        whenNotFreezed(to)
+        whenNotFrozen(msg.sender)
+        whenNotFrozen(from)
+        whenNotFrozen(to)
     {
         super._update(from, to, value);
     }
 
     function _authorizeUpgrade(address newImplementation) internal override onlyRole(ADMIN_ROLE) {}
 
-    function _whenNotFreezed(address account) internal view {
-        require(!freezed[account], "Freezed account");
+    function _whenNotFrozen(address account) internal view {
+        require(!frozen[account], "Frozen account");
     }
 }

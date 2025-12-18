@@ -16,7 +16,7 @@ contract StablecoinTest is Test {
     address public constant FREEZER = 0x15d34AAf54267DB7D7c367839AAf71A00a2C6A65;
 
     bytes public constant ENFORCED_PAUSE_ERROR = abi.encodeWithSignature("EnforcedPause()");
-    bytes public constant FREEZED_ACCOUNT_ERROR = "Freezed account";
+    bytes public constant FREEZED_ACCOUNT_ERROR = "Frozen account";
 
     function setUp() public {
         vm.startPrank(ADMIN);
@@ -34,6 +34,8 @@ contract StablecoinTest is Test {
         address newMinter = address(1);
         uint256 amount = 1000;
         vm.prank(ADMIN);
+        vm.expectEmit();
+        emit Stablecoin.MinterAdded(newMinter, amount);
         stablecoin.addMinter(newMinter, amount);
 
         bool hasRole = stablecoin.hasRole(stablecoin.MINTER_ROLE(), newMinter);
@@ -44,6 +46,74 @@ contract StablecoinTest is Test {
         stablecoin.mint(newMinter, amount);
         assertEq(stablecoin.balanceOf(newMinter), amount);
         assertEq(stablecoin.minterAllowance(newMinter), 0);
+    }
+
+    function test_OnlyAdminCanAddMinter() public {
+        address newMinter = address(1);
+        uint256 amount = 1000;
+        address nonAdmin = address(2);
+
+        bytes memory expectedError = abi.encodeWithSignature(
+            "AccessControlUnauthorizedAccount(address,bytes32)", nonAdmin, stablecoin.ADMIN_ROLE()
+        );
+        vm.prank(nonAdmin);
+        vm.expectRevert(expectedError);
+        stablecoin.addMinter(newMinter, amount);
+    }
+
+    function test_RemoveMinter() public {
+        address newMinter = address(1);
+        uint256 amount = 1000;
+        vm.startPrank(ADMIN);
+        stablecoin.addMinter(newMinter, amount);
+        vm.expectEmit();
+        emit Stablecoin.MinterRemoved(newMinter);
+        stablecoin.removeMinter(newMinter);
+        vm.stopPrank();
+
+        // Check the role is revoked and allowance is set to 0
+        assertFalse(stablecoin.hasRole(stablecoin.MINTER_ROLE(), newMinter));
+        assertEq(stablecoin.minterAllowance(newMinter), 0);
+    }
+
+    function test_IncreaseMinterAllowance() public {
+        uint256 amount = 1000;
+        uint256 minterAllowance = stablecoin.minterAllowance(MINTER);
+
+        vm.startPrank(ADMIN);
+        stablecoin.increaseMinterAllowance(MINTER, amount);
+        vm.stopPrank();
+
+        assertEq(stablecoin.minterAllowance(MINTER), minterAllowance + amount);
+    }
+
+    function test_OnlyAdminCanIncreaseMinterAllowance() public {
+        address nonAdmin = address(2);
+        uint256 amount = 1000;
+
+        bytes memory expectedError = abi.encodeWithSignature(
+            "AccessControlUnauthorizedAccount(address,bytes32)", nonAdmin, stablecoin.ADMIN_ROLE()
+        );
+
+        vm.prank(nonAdmin);
+        vm.expectRevert(expectedError);
+        stablecoin.increaseMinterAllowance(MINTER, amount);
+    }
+
+    function test_OnlyAdminCanRemoveMinter() public {
+        address newMinter = address(1);
+        uint256 amount = 1000;
+        address nonAdmin = address(2);
+
+        vm.prank(ADMIN);
+        stablecoin.addMinter(newMinter, amount);
+
+        bytes memory expectedError = abi.encodeWithSignature(
+            "AccessControlUnauthorizedAccount(address,bytes32)", nonAdmin, stablecoin.ADMIN_ROLE()
+        );
+        vm.prank(nonAdmin);
+        vm.expectRevert(expectedError);
+        stablecoin.removeMinter(newMinter);
     }
 
     function test_MinterCannotMintMoreThanAllowance() public {
@@ -207,45 +277,45 @@ contract StablecoinTest is Test {
         stablecoin.addMinter(account, 1000);
     }
 
-    function test_CannotMintToFreezedAccount() public {
-        address freezedAccount = address(1);
+    function test_CannotMintToFrozenAccount() public {
+        address frozenAccount = address(1);
         uint256 amount = 1000;
 
         vm.prank(FREEZER);
-        stablecoin.freeze(freezedAccount);
+        stablecoin.freeze(frozenAccount);
 
         vm.prank(MINTER);
         vm.expectRevert(FREEZED_ACCOUNT_ERROR);
-        stablecoin.mint(freezedAccount, amount);
+        stablecoin.mint(frozenAccount, amount);
     }
 
-    function test_CannotTransferFromFreezedAccount() public {
-        address freezedAccount = address(1);
+    function test_CannotTransferFromFrozenAccount() public {
+        address frozenAccount = address(1);
         address otherAccount = address(2);
         uint256 amount = 1000;
 
         vm.prank(FREEZER);
-        stablecoin.freeze(freezedAccount);
+        stablecoin.freeze(frozenAccount);
 
-        vm.prank(freezedAccount);
+        vm.prank(frozenAccount);
         vm.expectRevert(FREEZED_ACCOUNT_ERROR);
         stablecoin.transfer(otherAccount, amount);
     }
 
-    function test_CannotTransferToFreezedAccount() public {
-        address freezedAccount = address(1);
+    function test_CannotTransferToFrozenAccount() public {
+        address frozenAccount = address(1);
         address otherAccount = address(2);
         uint256 amount = 1000;
 
         vm.prank(FREEZER);
-        stablecoin.freeze(freezedAccount);
+        stablecoin.freeze(frozenAccount);
 
         vm.prank(otherAccount);
         vm.expectRevert(FREEZED_ACCOUNT_ERROR);
-        stablecoin.transfer(freezedAccount, amount);
+        stablecoin.transfer(frozenAccount, amount);
     }
 
-    function test_CannotCallTransferFromWhenSpenderIsFreezed() public {
+    function test_CannotCallTransferFromWhenSpenderIsFrozen() public {
         address owner = address(1);
         address spender = address(2);
         address receiver = address(3);
@@ -263,7 +333,7 @@ contract StablecoinTest is Test {
         stablecoin.transferFrom(owner, receiver, amount);
     }
 
-    function test_CannotCallTransferFromWhenOwnerIsFreezed() public {
+    function test_CannotCallTransferFromWhenOwnerIsFrozen() public {
         address owner = address(1);
         address spender = address(2);
         address receiver = address(3);
@@ -281,7 +351,7 @@ contract StablecoinTest is Test {
         stablecoin.transferFrom(owner, receiver, amount);
     }
 
-    function test_CannotCallTransferFromWhenReceiverIsFreezed() public {
+    function test_CannotCallTransferFromWhenReceiverIsFrozen() public {
         address owner = address(1);
         address spender = address(2);
         address receiver = address(3);
@@ -304,12 +374,29 @@ contract StablecoinTest is Test {
 
         // Freeze the account
         vm.prank(FREEZER);
+        vm.expectEmit();
+        emit Stablecoin.AccountFrozen(account);
         stablecoin.freeze(account);
-        assertTrue(stablecoin.freezed(account));
+        assertTrue(stablecoin.frozen(account));
 
         // Unfreeze the account
         vm.prank(FREEZER);
+        vm.expectEmit();
+        emit Stablecoin.AccountUnfrozen(account);
         stablecoin.unfreeze(account);
-        assertFalse(stablecoin.freezed(account));
+        assertFalse(stablecoin.frozen(account));
+    }
+
+    function test_NonAdminCannotUpgrade() public {
+        address nonAdmin = address(1);
+        address newImplementation = address(2);
+        bytes memory data = hex"";
+        bytes memory expectedError = abi.encodeWithSignature(
+            "AccessControlUnauthorizedAccount(address,bytes32)", nonAdmin, stablecoin.ADMIN_ROLE()
+        );
+
+        vm.prank(nonAdmin);
+        vm.expectRevert(expectedError);
+        stablecoin.upgradeToAndCall(newImplementation, data);
     }
 }
