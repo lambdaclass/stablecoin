@@ -90,15 +90,66 @@ The stablecoin smart contract extends the `ERC20` interface and adds functionali
 
 ### Deployment
 
-The smart contract can be deployed with the following command (replace the placeholders with the actual values)
+Before deploying the smart contract, make sure to setup the environment variables. Copy the `.env.example` with the following command and fill the missing variables
+
+```bash
+cp .env.example .env
+```
+
+To deploy the stablecoin smart contract, run the following command (make sure to set the right `RPC_URL`)
 
 ```bash
 forge clean
-forge script script/DeployStablecoin.s.sol \
-    --broadcast --private-key PRIVATE_KEY --rpc-url RPC_URL \
-     --sig 'run(string,string,address,address,address,address)' \
-     NAME SYMBOL ADMIN BURNER FREEZER PAUSER
+forge script script/DeployStablecoin.s.sol --broadcast --rpc-url RPC_URL
 ```
+
+### Upgrade with Safe
+
+To upgrade the stablecoin from a Safe smart account, run the following steps.
+
+#### 1. Deploy the new implementation
+
+> [!IMPORTANT]
+> 
+> The new implementation contract should include a [`@custom:oz-upgrades-from` reference](https://docs.openzeppelin.com/upgrades-plugins/api-core#define-reference-contracts) to validate whether the upgrade is safe.
+
+To deploy the new implementation, run the following command (make sure to set the right `RPC_URL` and `CONTRACT_NAME`)
+
+```bash
+forge clean
+forge script script/DeployNewImplementation.s.sol --broadcast --rpc-url RPC_URL \
+    --sig 'run(string)' CONTRACT_NAME
+```
+
+**Example**
+
+```bash
+forge clean
+forge script script/DeployNewImplementation.s.sol --broadcast --rpc-url http://localhost:8545 \
+    --sig 'run(string)' Stablecoin.sol
+```
+
+#### 2. Build the upgrade transaction on Safe
+
+To build a transaction on Safe, it is required to have the ABI of the contract. To generate the ABI, run the following command
+
+```bash
+forge build
+cat out/Stablecoin.sol/Stablecoin.json | jq .abi > Stablecoin.abi
+```
+
+This will create a `Stablecoin.abi` file containing the `Stablecoin` ABI.
+
+Then, navigate to [https://app.safe.global](https://app.safe.global), and create a new transaction using the **Transaction Builder**. In the transaction builder, fill the required fields as follows:
+* **Enter Address or ENS Name:** enter the Stablecoin proxy address.
+* **Enter ABI:** paste the generated ABI (from the `Stablecoin.abi` file).
+* **To Address:** enter the Stablecoin proxy address.
+* **ETH value:** fill it with 0.
+* **Contract Method Selector:** select the `upgradeToAndCall` function.
+* **newImplementation:** enter the address of the new implementation (deployed in the step 1).
+* **data:** enter `0x`.
+
+Then, follow the steps to create the transaction, and wait for the signers to sign the transaction.
 
 ## Setup 
 ### Build
