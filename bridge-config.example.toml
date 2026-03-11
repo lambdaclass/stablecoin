@@ -1,0 +1,45 @@
+# Bridge deployment configuration (example for chain A)
+# Usage: forge script script/DeployBridge.s.sol --sig "run(string)" bridge-config.example.toml
+
+[bridge]
+# Address of the pre-deployed stablecoin proxy on this chain
+stablecoin = "0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512"
+
+# Owner of all bridge contracts (can upgrade and configure)
+owner = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
+
+# Base salt for deterministic CREATE2 deployment (same across all chains)
+salt = "0x0000000000000000000000000000000000000000000000000000000000000001"
+
+[bridge.inbox]
+# k-of-n attestor threshold
+threshold = 2
+
+# Attestor addresses (the off-chain signers)
+attestors = [
+    "0x70997970C51812dc3A010C7d01b50e0d17dc79C8",
+    "0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC",
+    "0x90F79bf6EB2c4f870365E785982E1f101E93b906",
+]
+
+[bridge.minter]
+# Minting allowance for the BridgeMinter on the stablecoin (in smallest unit)
+allowance = 1000000000000
+
+# Remote BridgeBurner addresses allowed to send messages to this chain's BridgeMinter.
+# Each entry maps a source chain ID to the BridgeBurner address on that chain.
+[bridge.allowed_senders]
+src_chain = [137, 42161]
+sender = [
+    "0x9fE46736679d2D9a65F0992F2272dE9f3c7fa6e0",
+    "0x9fE46736679d2D9a65F0992F2272dE9f3c7fa6e0",
+]
+
+# Remote BridgeMinter addresses that this chain's BridgeBurner can target.
+# Each entry maps a destination chain ID to the BridgeMinter address on that chain.
+[bridge.dst_minters]
+dst_chain = [137, 42161]
+minter = [
+    "0xCf7Ed3AccA5a467e9e704C703E8D87F634fB0Fc9",
+    "0xCf7Ed3AccA5a467e9e704C703E8D87F634fB0Fc9",
+]

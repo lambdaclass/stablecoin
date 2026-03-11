@@ -1,0 +1,201 @@
+// SPDX-License-Identifier: UNLICENSED
+pragma solidity =0.8.30;
+
+import {BridgeTestBase} from "./BridgeTestBase.sol";
+import {Inbox} from "../../src/bridge/Inbox.sol";
+import {IMessageReceiver} from "../../src/bridge/interfaces/IMessageReceiver.sol";
+
+/// @dev Mock receiver that records calls for testing.
+contract MockReceiver is IMessageReceiver {
+    uint256 public lastSrcChain;
+    address public lastSrcSender;
+    bytes public lastPayload;
+    uint256 public callCount;
+
+    function handleMessage(uint256 srcChain, address srcSender, bytes calldata payload) external {
+        lastSrcChain = srcChain;
+        lastSrcSender = srcSender;
+        lastPayload = payload;
+        callCount++;
+    }
+}
+
+contract InboxTest is BridgeTestBase {
+    MockReceiver public receiver;
+
+    function setUp() public override {
+        super.setUp();
+        receiver = new MockReceiver();
+
+        // Configure inbox with attestors and threshold=2
+        vm.startPrank(ADMIN);
+        bridge.inbox.addAttestor(attestor1);
+        bridge.inbox.addAttestor(attestor2);
+        bridge.inbox.addAttestor(attestor3);
+        bridge.inbox.setThreshold(2);
+        vm.stopPrank();
+    }
+
+    // ─── Valid k-of-n signatures ─────────────────────────────────────
+
+    function test_ValidKOfNSignatures() public {
+        bytes memory payload = hex"CAFE";
+        bytes32 nonce = bytes32(uint256(1));
+        bytes memory message = _encodeMessage(42, address(0xAAAA), block.chainid, address(receiver), nonce, payload);
+
+        uint256[] memory pks = new uint256[](2);
+        pks[0] = ATTESTOR_PK_1;
+        pks[1] = ATTESTOR_PK_2;
+        bytes memory sigs = _signMessage(bridge.inbox, message, pks);
+
+        bridge.inbox.recvMessage(message, sigs);
+
+        assertEq(receiver.callCount(), 1);
+        assertEq(receiver.lastSrcChain(), 42);
+        assertEq(receiver.lastSrcSender(), address(0xAAAA));
+        assertEq(receiver.lastPayload(), payload);
+    }
+
+    function test_AllThreeSignatures() public {
+        bytes32 nonce = bytes32(uint256(2));
+        bytes memory message = _encodeMessage(42, address(0xAAAA), block.chainid, address(receiver), nonce, hex"");
+
+        uint256[] memory pks = new uint256[](3);
+        pks[0] = ATTESTOR_PK_1;
+        pks[1] = ATTESTOR_PK_2;
+        pks[2] = ATTESTOR_PK_3;
+        bytes memory sigs = _signMessage(bridge.inbox, message, pks);
+
+        bridge.inbox.recvMessage(message, sigs);
+        assertEq(receiver.callCount(), 1);
+    }
+
+    // ─── Below threshold ─────────────────────────────────────────────
+
+    function test_BelowThresholdReverts() public {
+        bytes32 nonce = bytes32(uint256(3));
+        bytes memory message = _encodeMessage(42, address(0xAAAA), block.chainid, address(receiver), nonce, hex"");
+
+        uint256[] memory pks = new uint256[](1);
+        pks[0] = ATTESTOR_PK_1;
+        bytes memory sigs = _signMessage(bridge.inbox, message, pks);
+
+        vm.expectRevert(Inbox.BelowThreshold.selector);
+        bridge.inbox.recvMessage(message, sigs);
+    }
+
+    // ─── Invalid signatures ──────────────────────────────────────────
+
+    function test_InvalidSignerReverts() public {
+        bytes32 nonce = bytes32(uint256(4));
+        bytes memory message = _encodeMessage(42, address(0xAAAA), block.chainid, address(receiver), nonce, hex"");
+
+        // Use a non-attestor private key
+        uint256 fakePk = 0xDEAD;
+        uint256[] memory pks = new uint256[](2);
+        pks[0] = ATTESTOR_PK_1;
+        pks[1] = fakePk;
+        bytes memory sigs = _signMessage(bridge.inbox, message, pks);
+
+        vm.expectRevert(abi.encodeWithSelector(Inbox.SignerNotAttestor.selector, vm.addr(fakePk)));
+        bridge.inbox.recvMessage(message, sigs);
+    }
+
+    // ─── Duplicate signer ────────────────────────────────────────────
+
+    function test_DuplicateSignerReverts() public {
+        bytes32 nonce = bytes32(uint256(5));
+        bytes memory message = _encodeMessage(42, address(0xAAAA), block.chainid, address(receiver), nonce, hex"");
+
+        // Sign twice with the same key
+        bytes32 digest = _inboxDigest(bridge.inbox, message);
+        bytes memory sig = _sign(ATTESTOR_PK_1, digest);
+        bytes memory sigs = abi.encodePacked(sig, sig);
+
+        vm.expectRevert(Inbox.DuplicateSigner.selector);
+        bridge.inbox.recvMessage(message, sigs);
+    }
+
+    // ─── Nonce replay ────────────────────────────────────────────────
+
+    function test_NonceReplayReverts() public {
+        bytes32 nonce = bytes32(uint256(6));
+        bytes memory message = _encodeMessage(42, address(0xAAAA), block.chainid, address(receiver), nonce, hex"");
+
+        uint256[] memory pks = new uint256[](2);
+        pks[0] = ATTESTOR_PK_1;
+        pks[1] = ATTESTOR_PK_2;
+        bytes memory sigs = _signMessage(bridge.inbox, message, pks);
+
+        // First delivery succeeds
+        bridge.inbox.recvMessage(message, sigs);
+
+        // Second delivery reverts
+        vm.expectRevert(abi.encodeWithSelector(Inbox.NonceAlreadyUsed.selector, nonce));
+        bridge.inbox.recvMessage(message, sigs);
+    }
+
+    // ─── Destination chain mismatch ──────────────────────────────────
+
+    function test_WrongDstChainReverts() public {
+        uint256 wrongChain = block.chainid + 1;
+        bytes32 nonce = bytes32(uint256(7));
+        bytes memory message = _encodeMessage(42, address(0xAAAA), wrongChain, address(receiver), nonce, hex"");
+
+        uint256[] memory pks = new uint256[](2);
+        pks[0] = ATTESTOR_PK_1;
+        pks[1] = ATTESTOR_PK_2;
+        bytes memory sigs = _signMessage(bridge.inbox, message, pks);
+
+        vm.expectRevert(abi.encodeWithSelector(Inbox.WrongDestinationChain.selector, block.chainid, wrongChain));
+        bridge.inbox.recvMessage(message, sigs);
+    }
+
+    // ─── Attestor management (owner-only) ────────────────────────────
+
+    function test_OnlyOwnerCanAddAttestor() public {
+        address nonOwner = address(0x9999);
+        vm.prank(nonOwner);
+        vm.expectRevert();
+        bridge.inbox.addAttestor(address(0xBBBB));
+    }
+
+    function test_OnlyOwnerCanRemoveAttestor() public {
+        address nonOwner = address(0x9999);
+        vm.prank(nonOwner);
+        vm.expectRevert();
+        bridge.inbox.removeAttestor(attestor1);
+    }
+
+    function test_OnlyOwnerCanSetThreshold() public {
+        address nonOwner = address(0x9999);
+        vm.prank(nonOwner);
+        vm.expectRevert();
+        bridge.inbox.setThreshold(3);
+    }
+
+    function test_CannotAddDuplicateAttestor() public {
+        vm.prank(ADMIN);
+        vm.expectRevert(abi.encodeWithSelector(Inbox.AlreadyAttestor.selector, attestor1));
+        bridge.inbox.addAttestor(attestor1);
+    }
+
+    function test_CannotRemoveNonAttestor() public {
+        vm.prank(ADMIN);
+        vm.expectRevert(abi.encodeWithSelector(Inbox.NotAttestor.selector, address(0x1111)));
+        bridge.inbox.removeAttestor(address(0x1111));
+    }
+
+    // ─── Invalid signature length ────────────────────────────────────
+
+    function test_InvalidSignatureLengthReverts() public {
+        bytes32 nonce = bytes32(uint256(8));
+        bytes memory message = _encodeMessage(42, address(0xAAAA), block.chainid, address(receiver), nonce, hex"");
+
+        // 64 bytes (not a multiple of 65)
+        bytes memory badSigs = new bytes(64);
+
+        vm.expectRevert(Inbox.InvalidSignatureCount.selector);
+        bridge.inbox.recvMessage(message, badSigs);
+    }
+}
