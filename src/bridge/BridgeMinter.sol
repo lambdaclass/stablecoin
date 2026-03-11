@@ -1,0 +1,65 @@
+// SPDX-License-Identifier: UNLICENSED
+pragma solidity =0.8.30;
+
+import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
+import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
+import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
+import {IMessageReceiver} from "./interfaces/IMessageReceiver.sol";
+import {Stablecoin} from "../Stablecoin.sol";
+import {TokenMintMessage} from "./TokenMintMessage.sol";
+
+/// @title BridgeMinter
+/// @notice Application-level bridge exit point. Receives messages from the Inbox,
+/// validates the source chain and sender, then mints tokens to the recipient.
+contract BridgeMinter is Initializable, OwnableUpgradeable, UUPSUpgradeable, IMessageReceiver {
+    Stablecoin public stablecoin;
+    address public inbox;
+
+    /// @notice Mapping from source chain ID to the expected sender address (BridgeBurner on that chain).
+    /// A source chain is allowed if and only if the mapped address is non-zero.
+    mapping(uint256 => address) public allowedSenders;
+
+    event AllowedSenderSet(uint256 indexed srcChain, address sender);
+
+    error OnlyInbox();
+    error DisallowedSender(uint256 srcChain, address srcSender);
+
+    /// @custom:oz-upgrades-unsafe-allow constructor
+    constructor() {
+        _disableInitializers();
+    }
+
+    function initialize(address owner_, address stablecoin_, address inbox_) public initializer {
+        __Ownable_init(owner_);
+        stablecoin = Stablecoin(stablecoin_);
+        inbox = inbox_;
+    }
+
+    /// @notice Set the expected sender for a source chain.
+    function setAllowedSender(uint256 srcChain, address sender) external onlyOwner {
+        allowedSenders[srcChain] = sender;
+        emit AllowedSenderSet(srcChain, sender);
+    }
+
+    function setInbox(address inbox_) external onlyOwner {
+        inbox = inbox_;
+    }
+
+    function setStablecoin(address stablecoin_) external onlyOwner {
+        stablecoin = Stablecoin(stablecoin_);
+    }
+
+    /// @inheritdoc IMessageReceiver
+    function handleMessage(uint256 srcChain, address srcSender, bytes calldata payload) external {
+        require(msg.sender == inbox, OnlyInbox());
+        require(
+            allowedSenders[srcChain] != address(0) && allowedSenders[srcChain] == srcSender,
+            DisallowedSender(srcChain, srcSender)
+        );
+
+        (address recipient, uint256 amount) = TokenMintMessage.decode(payload);
+        stablecoin.mint(recipient, amount);
+    }
+
+    function _authorizeUpgrade(address) internal override onlyOwner {}
+}
