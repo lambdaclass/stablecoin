@@ -9,7 +9,7 @@ A burn-and-mint bridge that moves stablecoin tokens between EVM chains. Tokens a
 | **Outbox** | Generic message outbox. Accepts messages from senders and emits events for the off-chain attestation service. Stateless. |
 | **Inbox** | Generic message inbox. Verifies k-of-n EIP-712 attestor signatures, enforces replay protection via nonces, and delivers payloads to destination contracts. Ownable (attestor set and threshold management). |
 | **BridgeBurner** | Application-level bridge entry point. Burns tokens from the user via the stablecoin's `burnFrom`, then sends a message through the Outbox. Ownable (configuration management). |
-| **BridgeMinter** | Application-level bridge exit point. Receives messages from the Inbox, verifies the source is a trusted burner on an allowed chain, then mints tokens to the recipient. Holds MINTER_ROLE on the stablecoin. |
+| **BridgeMinter** | Application-level bridge exit point. Receives messages from the Inbox, verifies the source chain and sender against an allowed senders mapping, then mints tokens to the recipient. Holds MINTER_ROLE on the stablecoin. |
 | **TokenMintMessage** | Library for encoding and decoding the application-level payload (recipient + amount). Used by both BridgeBurner and BridgeMinter. |
 
 All contracts are UUPS upgradeable.
@@ -121,12 +121,6 @@ interface IBridgeBurner {
 }
 ```
 
-### IBridgeMinter
-
-```solidity
-interface IBridgeMinter is IMessageReceiver {
-}
-```
 
 ## Cross-Chain Bridge Flow
 
@@ -180,7 +174,7 @@ sequenceDiagram
     User ->>+ Inbox: recvMessage(message, signatures)
     Inbox ->> Inbox: verify k-of-n EIP-712 sigs, check nonce
     Inbox ->>+ Minter: handleMessage(srcChain, srcSender, payload)
-    Minter ->> Minter: verify srcSender == trustedBurner, srcChain allowed
+    Minter ->> Minter: verify allowedSenders[srcChain] == srcSender
     Minter ->>+ ERC20_B: mint(recipient, amount)
     ERC20_B -->>- Minter: minted
     Minter -->>- Inbox: done
@@ -212,7 +206,7 @@ The bridge uses a k-of-n attestor threshold for message verification:
 **BridgeMinter** enforces two layers of access control:
 
 1. **Transport level**: only the Inbox contract can call `handleMessage`.
-2. **Application level**: only messages where `srcSender == trustedBurner` and `allowedSourceChain[srcChain] == true` are accepted.
+2. **Application level**: only messages where `allowedSenders[srcChain] == srcSender` are accepted. A source chain is allowed if and only if it has a non-zero sender address in the mapping.
 
 **BridgeBurner** has no access control on `sendTo` itself, since the user's own ERC20 approval gates the burn.
 
@@ -228,10 +222,25 @@ Attestations are produced only after finality is achieved on the source chain. T
 
 ## Deployment
 
-<!-- TODO: Document the deployment strategy.
-     - CREATE2 factory for deterministic same-address deployment across all chains
-       (stablecoin, bridge contracts all share addresses across chains)
-     - UUPS proxy deployment: implementation deploy + proxy deploy + initialize
-     - Deployment order and initialization sequence
-       (stablecoin first, then bridge contracts, then role grants)
--->
+All contracts are deployed to the same addresses across all chains using the [Arachnid deterministic deployer](https://github.com/Arachnid/deterministic-deployment-proxy) (`0x4e59b44847b379578588920cA78FbF26c0B4956C`). For each contract, the implementation is deployed via CREATE2, then an ERC1967Proxy is deployed via CREATE2 with the implementation address and initializer calldata baked into the constructor args. Since the bytecode and salt are identical across chains, the resulting addresses are the same everywhere.
+
+A single Foundry deployment script handles the full sequence. Per-chain configuration (e.g., allowed senders per source chain) is loaded from a TOML configuration file.
+
+The deploy and configuration logic lives in two Solidity libraries, so both the deployment script and tests can reuse the same code:
+
+- **BridgeDeploy**: deploys all contracts (implementation + proxy for each).
+- **BridgeConfig**: configures the deployed contracts (role grants, attestor set, allowed source chains, etc.).
+
+### Deployment order
+
+| Step | Action | Notes |
+|------|--------|-------|
+| 1 | Deploy Stablecoin (implementation + proxy) | Initialized with name, symbol, decimals, roles |
+| 2 | Deploy Outbox (implementation + proxy) | |
+| 3 | Deploy Inbox (implementation + proxy) | |
+| 4 | Deploy BridgeBurner (implementation + proxy) | Initialized with stablecoin and outbox references |
+| 5 | Deploy BridgeMinter (implementation + proxy) | Initialized with stablecoin and inbox references |
+| 6 | Grant BURNER_ROLE to BridgeBurner on Stablecoin | |
+| 7 | Add BridgeMinter as minter on Stablecoin (with allowance) | Allowance from config file |
+| 8 | Configure Inbox | Add attestors, set threshold |
+| 9 | Configure BridgeMinter | Set allowed senders per source chain (per-chain) |
