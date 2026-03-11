@@ -1,6 +1,136 @@
-# Cross-Chain Bridge Flow
+# How the stablecoin bridge works
 
-How tokens move from Chain A to Chain B through a burn-and-mint bridge with off-chain attestation.
+A burn-and-mint bridge that moves stablecoin tokens between EVM chains. Tokens are burned on the source chain, an off-chain attestation service confirms the burn after finality, and equivalent tokens are minted on the destination chain. The bridge uses a k-of-n attestor threshold with EIP-712 typed signatures for security.
+
+## Contracts
+
+| Contract | Description |
+|---|---|
+| **Outbox** | Generic message outbox. Accepts messages from senders and emits events for the off-chain attestation service. Stateless. |
+| **Inbox** | Generic message inbox. Verifies k-of-n EIP-712 attestor signatures, enforces replay protection via nonces, and delivers payloads to destination contracts. Ownable (attestor set and threshold management). |
+| **BridgeBurner** | Application-level bridge entry point. Burns tokens from the user via the stablecoin's `burnFrom`, then sends a message through the Outbox. Ownable (configuration management). |
+| **BridgeMinter** | Application-level bridge exit point. Receives messages from the Inbox, verifies the source is a trusted burner on an allowed chain, then mints tokens to the recipient. Holds MINTER_ROLE on the stablecoin. |
+| **TokenMintMessage** | Library for encoding and decoding the application-level payload (recipient + amount). Used by both BridgeBurner and BridgeMinter. |
+
+All contracts are UUPS upgradeable.
+
+## Architecture
+
+### Layering
+
+The bridge is split into two layers:
+
+```
+┌─ Application Layer ──────────────────────────────────────────────┐
+│  BridgeBurner                              BridgeMinter          │
+│  • burns tokens                            • mints tokens        │
+│  • encodes payload (TokenMintMessage)      • decodes payload     │
+│  • holds BURNER_ROLE                       • holds MINTER_ROLE   │
+└──────────┬────────────────────────────────────────▲──────────────┘
+           │ sendMessage(dstChain,                  │ handleMessage(srcChain,
+           │            dstRecipient,               │               srcSender,
+           │            payload)                    │               payload)
+┌─ Transport Layer ────────────────────────────────────────────────┐
+│  Outbox (IOutbox)                          Inbox (IInbox)        │
+│  • emits MessageSent event                 • EIP-712 sig verify  │
+│  • stateless                               • k-of-n threshold    │
+│                                            • nonce tracking      │
+│                                            • attestor management │
+└──────────────────────────────────────────────────────────────────┘
+```
+
+This separation provides several benefits:
+
+- **Auditability**: each component is simpler and easier to audit in isolation.
+- **Swappability**: the transport layer can be replaced (e.g., with a native L1-L2 bridge) without changing the application-level contracts.
+- **Least privilege**: no single contract holds both minter and burner roles.
+- **Testability**: message encoding/decoding lives in a library (`TokenMintMessage`), so it can be tested independently of the contracts.
+
+### Message structure
+
+The full message has two levels: the transport envelope and the application payload.
+
+**Transport-level message** (constructed by the off-chain server, signed by attestors):
+
+| Field | Type | Description |
+|---|---|---|
+| `srcChain` | `uint256` | Chain ID where the burn happened |
+| `srcSender` | `address` | Address that sent the outbox message (BridgeBurner) |
+| `dstChain` | `uint256` | Chain ID where tokens should be minted |
+| `dstRecipient` | `address` | Address to call on the destination chain (BridgeMinter) |
+| `nonce` | `bytes32` | Replay protection identifier, assigned by the server |
+| `payload` | `bytes` | Application-level data, opaque to the transport layer |
+
+**Application-level payload** (encoded/decoded by `TokenMintMessage`):
+
+| Field | Type | Description |
+|---|---|---|
+| `recipient` | `address` | Who receives the minted tokens |
+| `amount` | `uint256` | How many tokens to mint |
+
+The server constructs the full message from event data (`srcSender` from `msg.sender`, `dstChain`, `dstRecipient`, `payload`), context (`srcChain` from which chain the event was observed on), and its own assignment (`nonce`).
+
+## Interfaces
+
+### IOutbox
+
+```solidity
+interface IOutbox {
+    event MessageSent(
+        address indexed sender,
+        uint256 indexed dstChain,
+        address indexed dstRecipient,
+        bytes payload
+    );
+
+    function sendMessage(
+        uint256 dstChain,
+        address dstRecipient,
+        bytes calldata payload
+    ) external;
+}
+```
+
+### IInbox
+
+```solidity
+interface IInbox {
+    /// @param message ABI-encoded (srcChain, srcSender, dstChain, dstRecipient, nonce, payload).
+    /// @param signatures Packed ECDSA signatures (65 bytes each: r[32] || s[32] || v[1]).
+    function recvMessage(bytes calldata message, bytes calldata signatures) external;
+}
+```
+
+### IMessageReceiver
+
+```solidity
+interface IMessageReceiver {
+    function handleMessage(
+        uint256 srcChain,
+        address srcSender,
+        bytes calldata payload
+    ) external;
+}
+```
+
+### IBridgeBurner
+
+```solidity
+interface IBridgeBurner {
+    function sendTo(uint256 dstChain, address recipient, uint256 amount) external;
+}
+```
+
+### IBridgeMinter
+
+```solidity
+interface IBridgeMinter is IMessageReceiver {
+}
+```
+
+## Cross-Chain Bridge Flow
+
+How tokens move from Chain A to Chain B through the burn-and-mint bridge.
 
 ```mermaid
 sequenceDiagram
@@ -9,58 +139,99 @@ sequenceDiagram
 
     box Chain A
         participant ERC20_A as ERC20 (Chain A)
-        participant Burner as Burner (Chain A)
-        participant OutBridge as Outbound Bridge (Chain A)
+        participant Burner as BridgeBurner (Chain A)
+        participant Outbox as Outbox (Chain A)
     end
 
     box Chain B
-        participant InBridge as Inbound Bridge (Chain B)
-        participant Minter as Minter (Chain B)
+        participant Inbox as Inbox (Chain B)
+        participant Minter as BridgeMinter (Chain B)
         participant ERC20_B as ERC20 (Chain B)
     end
 
-    Note over User, OutBridge: 1. Approve tokens for burning
+    Note over User, Outbox: 1. Approve tokens for burning
 
     User ->>+ ERC20_A: approve(burner, amount)
     ERC20_A -->>- User: tx confirmed
 
-    Note over User, OutBridge: 2. Initiate cross-chain transfer
+    Note over User, Outbox: 2. Initiate cross-chain transfer
 
-    User ->>+ Burner: sendTo(destChain, recipient, amount)
+    User ->>+ Burner: sendTo(dstChain, recipient, amount)
     Burner ->>+ ERC20_A: burnFrom(user, amount)
     ERC20_A -->>- Burner: burned
-    Burner ->>+ OutBridge: sendMessage(destChain, recipient, amount)
-    OutBridge -->>- Burner: MessageSent event emitted
+    Burner ->>+ Outbox: sendMessage(dstChain, minterAddr, payload)
+    Outbox -->>- Burner: MessageSent event emitted
     Burner -->>- User: tx confirmed
 
-    Note over Server, OutBridge: 3. Server watches for bridge events
+    Note over Server, Outbox: 3. Server watches for bridge events
 
-    OutBridge --) Server: MessageSent event
+    Outbox --) Server: MessageSent event
     activate Server
-    Server ->> Server: generate attestation
+    Server ->> Server: wait for finality, assign nonce, collect k-of-n signatures
     deactivate Server
 
     Note over User, Server: 4. User requests attestation
 
     User ->>+ Server: requestAttestation(msgHash)
-    Server -->>- User: signed attestation
+    Server -->>- User: signed message + signatures
 
     Note over User, ERC20_B: 5. Deliver attested message on destination chain
 
-    User ->>+ InBridge: recvMessage(message, attestation)
-    InBridge ->>+ Minter: recvMintRequest(recipient, amount)
-    Minter ->>+ ERC20_B: mintTo(recipient, amount)
+    User ->>+ Inbox: recvMessage(message, signatures)
+    Inbox ->> Inbox: verify k-of-n EIP-712 sigs, check nonce
+    Inbox ->>+ Minter: handleMessage(srcChain, srcSender, payload)
+    Minter ->> Minter: verify srcSender == trustedBurner, srcChain allowed
+    Minter ->>+ ERC20_B: mint(recipient, amount)
     ERC20_B -->>- Minter: minted
-    Minter -->>- InBridge: done
-    InBridge -->>- User: tx confirmed
+    Minter -->>- Inbox: done
+    Inbox -->>- User: tx confirmed
 ```
 
-## Step-by-step summary
+### Step-by-step summary
 
 | Step | Actor | Action | Chain |
 |------|-------|--------|-------|
-| 1 | User | `approve()` the Burner to spend tokens | A |
-| 2 | User | `sendTo()` on Burner, which burns tokens and sends a bridge message | A |
-| 3 | Server | Watches `MessageSent` events, produces attestations | off-chain |
+| 1 | User | `approve()` the BridgeBurner to spend tokens | A |
+| 2 | User | `sendTo()` on BridgeBurner, which burns tokens and sends a message through the Outbox | A |
+| 3 | Server | Watches `MessageSent` events, waits for finality, assigns nonce, collects k-of-n attestor signatures | off-chain |
 | 4 | User | Fetches the signed attestation from the Server | off-chain |
-| 5 | User | `recvMessage()` on Inbound Bridge, which mints tokens via Minter | B |
+| 5 | User | `recvMessage()` on Inbox, which verifies signatures and nonce, then calls BridgeMinter to mint tokens | B |
+
+## Security
+
+### Attestation model
+
+The bridge uses a k-of-n attestor threshold for message verification:
+
+- Attestors sign messages using **EIP-712 typed structured data**, with the domain separator bound to the Inbox contract address and destination chain ID. This prevents cross-chain and cross-contract replay of signatures.
+- The **threshold k is configurable**.
+- The **attestor set is updatable** via `addAttestor` and `removeAttestor`.
+
+### Access control
+
+**BridgeMinter** enforces two layers of access control:
+
+1. **Transport level**: only the Inbox contract can call `handleMessage`.
+2. **Application level**: only messages where `srcSender == trustedBurner` and `allowedSourceChain[srcChain] == true` are accepted.
+
+**BridgeBurner** has no access control on `sendTo` itself, since the user's own ERC20 approval gates the burn.
+
+All bridge contracts (Inbox, Outbox, BridgeBurner, BridgeMinter) are Ownable, with a setter and getter for the owner. Only the owner can update each contract's configuration (e.g., attestor set and threshold on the Inbox, outbox reference on the BridgeBurner). Since whoever controls the Inbox's attestor set controls what gets minted, the Inbox owner is effectively the bridge's trust root.
+
+### Replay protection
+
+The off-chain server assigns an opaque `bytes32` nonce to each message. The Inbox tracks used nonces in a `mapping(bytes32 => bool)` and rejects any message with a previously seen nonce.
+
+### Source chain finality
+
+Attestations are produced only after finality is achieved on the source chain. This prevents minting based on burns that could be reverted by a chain reorganization.
+
+## Deployment
+
+<!-- TODO: Document the deployment strategy.
+     - CREATE2 factory for deterministic same-address deployment across all chains
+       (stablecoin, bridge contracts all share addresses across chains)
+     - UUPS proxy deployment: implementation deploy + proxy deploy + initialize
+     - Deployment order and initialization sequence
+       (stablecoin first, then bridge contracts, then role grants)
+-->
