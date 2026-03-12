@@ -117,6 +117,8 @@ contract Inbox is Initializable, OwnableUpgradeable, UUPSUpgradeable, EIP712Upgr
     // ─── Internal ────────────────────────────────────────────────────
 
     function _verifySignatures(bytes calldata message, bytes calldata signatures) internal view {
+        // Fail-closed: reject all messages when threshold is unconfigured (zero).
+        require(threshold > 0, BelowThreshold());
         uint256 sigCount = signatures.length / 65;
         require(signatures.length == sigCount * 65, InvalidSignatureCount());
         require(sigCount >= threshold, BelowThreshold());
