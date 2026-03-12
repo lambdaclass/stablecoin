@@ -29,7 +29,6 @@ contract Inbox is Initializable, OwnableUpgradeable, UUPSUpgradeable, EIP712Upgr
 
     error InvalidSignatureCount();
     error BelowThreshold();
-    error InvalidSignature();
     error DuplicateSigner();
     error SignerNotAttestor(address signer);
     error NonceAlreadyUsed(bytes32 nonce);
@@ -118,13 +117,8 @@ contract Inbox is Initializable, OwnableUpgradeable, UUPSUpgradeable, EIP712Upgr
 
         address prevSigner = address(0);
         for (uint256 i = 0; i < sigCount; i++) {
-            // Extract r, s, v from packed signature
             uint256 offset = i * 65;
-            bytes32 r = bytes32(signatures[offset:offset + 32]);
-            bytes32 s = bytes32(signatures[offset + 32:offset + 64]);
-            uint8 v = uint8(signatures[offset + 64]);
-
-            address signer = ECDSA.recover(digest, v, r, s);
+            address signer = ECDSA.recoverCalldata(digest, signatures[offset:offset + 65]);
 
             // Enforce ascending order to detect duplicates in O(n)
             require(signer > prevSigner, DuplicateSigner());
