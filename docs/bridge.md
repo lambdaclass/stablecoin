@@ -220,6 +220,19 @@ The off-chain server assigns an opaque `bytes32` nonce to each message. The Inbo
 
 Attestations are produced only after finality is achieved on the source chain. This prevents minting based on burns that could be reverted by a chain reorganization.
 
+### Frozen accounts
+
+The stablecoin's `_update()` hook enforces frozen-account checks on every balance change: transfers, mints, and burns. This applies to bridge operations too, since both `burnFrom` and `mint` flow through `_update()`.
+
+| Direction | Code path | Frozen check that blocks it |
+|---|---|---|
+| Bridging out (source chain) | `sendTo` → `burnFrom` → `_update(from=user, to=address(0))` | `whenNotFrozen(from)` reverts because the user is frozen |
+| Bridging in (destination chain) | `handleMessage` → `mint` → `_update(from=address(0), to=recipient)` | `whenNotFrozen(to)` reverts because the recipient is frozen |
+
+A frozen account cannot send or receive tokens through the bridge. No bridge-specific freeze logic is needed because the enforcement sits in the stablecoin's `_update()` hook, which all token operations pass through.
+
+**Revert semantics on the destination chain.** `Inbox.recvMessage` marks the nonce as used before calling `handleMessage`. Since there is no try/catch wrapper, a mint revert (e.g., frozen recipient) rolls back the entire transaction, including the nonce. The message is not permanently lost: it can be resubmitted after the recipient is unfrozen.
+
 ## Deployment
 
 All contracts are deployed to the same addresses across all chains using the [Arachnid deterministic deployer](https://github.com/Arachnid/deterministic-deployment-proxy) (`0x4e59b44847b379578588920cA78FbF26c0B4956C`). For each contract, the implementation is deployed via CREATE2, then an ERC1967Proxy is deployed via CREATE2 with the implementation address and initializer calldata baked into the constructor args. Since the bytecode and salt are identical across chains, the resulting addresses are the same everywhere.
