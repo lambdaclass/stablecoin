@@ -2,7 +2,6 @@
 pragma solidity =0.8.30;
 
 import {BridgeTestBase} from "./BridgeTestBase.sol";
-import {BridgeDeploy} from "../../src/bridge/deploy/BridgeDeploy.sol";
 import {BridgeConfig} from "../../src/bridge/deploy/BridgeConfig.sol";
 
 contract BridgeDeployTest is BridgeTestBase {

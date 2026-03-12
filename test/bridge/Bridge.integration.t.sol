@@ -4,12 +4,9 @@ pragma solidity =0.8.30;
 import {Test} from "forge-std/Test.sol";
 import {Stablecoin} from "../../src/Stablecoin.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
-import {Outbox} from "../../src/bridge/Outbox.sol";
 import {Inbox} from "../../src/bridge/Inbox.sol";
-import {BridgeBurner} from "../../src/bridge/BridgeBurner.sol";
 import {BridgeMinter} from "../../src/bridge/BridgeMinter.sol";
 import {BridgeDeploy} from "../../src/bridge/deploy/BridgeDeploy.sol";
-import {BridgeConfig} from "../../src/bridge/deploy/BridgeConfig.sol";
 import {TokenMintMessage} from "../../src/bridge/TokenMintMessage.sol";
 import {MessageHashUtils} from "@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol";
 
