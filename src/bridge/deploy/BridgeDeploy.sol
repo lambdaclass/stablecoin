@@ -2,6 +2,7 @@
 pragma solidity =0.8.30;
 
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
+import {Create2} from "@openzeppelin/contracts/utils/Create2.sol";
 import {Outbox} from "../Outbox.sol";
 import {Inbox} from "../Inbox.sol";
 import {BridgeBurner} from "../BridgeBurner.sol";
@@ -85,14 +86,9 @@ library BridgeDeploy {
 
     /// @dev Deploy bytecode via the Arachnid CREATE2 factory and return the deployed address.
     function _deploy(bytes32 salt, bytes memory bytecode) private returns (address deployed) {
-        deployed = computeAddress(salt, bytecode);
+        deployed = Create2.computeAddress(salt, keccak256(bytecode), ARACHNID);
         (bool success,) = ARACHNID.call(abi.encodePacked(salt, bytecode));
         require(success, "BridgeDeploy: CREATE2 failed");
         require(deployed.code.length > 0, "BridgeDeploy: deployment produced no code");
-    }
-
-    /// @dev Compute the deterministic CREATE2 address for the Arachnid factory.
-    function computeAddress(bytes32 salt, bytes memory bytecode) internal pure returns (address) {
-        return address(uint160(uint256(keccak256(abi.encodePacked(hex"ff", ARACHNID, salt, keccak256(bytecode))))));
     }
 }
