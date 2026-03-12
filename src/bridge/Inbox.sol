@@ -4,20 +4,15 @@ pragma solidity =0.8.30;
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
+import {EIP712Upgradeable} from "@openzeppelin/contracts-upgradeable/utils/cryptography/EIP712Upgradeable.sol";
 import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
-import {MessageHashUtils} from "@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol";
 import {IInbox} from "./interfaces/IInbox.sol";
 import {IMessageReceiver} from "./interfaces/IMessageReceiver.sol";
 
 /// @title Inbox
 /// @notice Generic message inbox with k-of-n EIP-712 attestor verification, nonce replay protection,
 /// and message delivery to receiver contracts.
-contract Inbox is Initializable, OwnableUpgradeable, UUPSUpgradeable, IInbox {
-    // EIP-712 type hash for the message struct
-    bytes32 public constant MESSAGE_TYPEHASH = keccak256(
-        "Message(uint256 srcChain,address srcSender,uint256 dstChain,address dstRecipient,bytes32 nonce,bytes payload)"
-    );
-
+contract Inbox is Initializable, OwnableUpgradeable, UUPSUpgradeable, EIP712Upgradeable, IInbox {
     /// @notice Minimum number of valid attestor signatures required.
     uint256 public threshold;
 
@@ -26,14 +21,6 @@ contract Inbox is Initializable, OwnableUpgradeable, UUPSUpgradeable, IInbox {
 
     /// @notice Nonces that have already been consumed (replay protection).
     mapping(bytes32 => bool) public usedNonces;
-
-    // EIP-712 domain separator (computed once at initialization, recomputed if chain forks)
-    bytes32 private _cachedDomainSeparator;
-    uint256 private _cachedChainId;
-    bytes32 private _hashedName;
-    bytes32 private _hashedVersion;
-    bytes32 private constant TYPE_HASH =
-        keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)");
 
     event MessageDelivered(bytes32 indexed nonce, address indexed dstRecipient);
     event AttestorAdded(address indexed attestor);
@@ -59,11 +46,7 @@ contract Inbox is Initializable, OwnableUpgradeable, UUPSUpgradeable, IInbox {
 
     function initialize(address owner_) public initializer {
         __Ownable_init(owner_);
-
-        _hashedName = keccak256("Inbox");
-        _hashedVersion = keccak256("1");
-        _cachedChainId = block.chainid;
-        _cachedDomainSeparator = _buildDomainSeparator();
+        __EIP712_init("Inbox", "1");
     }
 
     // ─── Attestor management (owner-only) ────────────────────────────
@@ -119,10 +102,7 @@ contract Inbox is Initializable, OwnableUpgradeable, UUPSUpgradeable, IInbox {
     // ─── EIP-712 ─────────────────────────────────────────────────────
 
     function domainSeparator() public view returns (bytes32) {
-        if (block.chainid == _cachedChainId) {
-            return _cachedDomainSeparator;
-        }
-        return _buildDomainSeparator();
+        return _domainSeparatorV4();
     }
 
     // ─── Internal ────────────────────────────────────────────────────
@@ -134,7 +114,7 @@ contract Inbox is Initializable, OwnableUpgradeable, UUPSUpgradeable, IInbox {
 
         // Hash the raw message bytes with EIP-712
         bytes32 structHash = keccak256(message);
-        bytes32 digest = MessageHashUtils.toTypedDataHash(domainSeparator(), structHash);
+        bytes32 digest = _hashTypedDataV4(structHash);
 
         address prevSigner = address(0);
         for (uint256 i = 0; i < sigCount; i++) {
@@ -152,10 +132,6 @@ contract Inbox is Initializable, OwnableUpgradeable, UUPSUpgradeable, IInbox {
 
             prevSigner = signer;
         }
-    }
-
-    function _buildDomainSeparator() private view returns (bytes32) {
-        return keccak256(abi.encode(TYPE_HASH, _hashedName, _hashedVersion, block.chainid, address(this)));
     }
 
     function _authorizeUpgrade(address) internal override onlyOwner {}
