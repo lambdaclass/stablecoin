@@ -29,6 +29,10 @@ contract BridgeMinter is Initializable, OwnableUpgradeable, UUPSUpgradeable, IMe
         _disableInitializers();
     }
 
+    /// @notice Initialize the BridgeMinter proxy.
+    /// @param owner_ Address that will own the contract (can configure and upgrade).
+    /// @param stablecoin_ Address of the stablecoin contract to mint tokens on.
+    /// @param inbox_ Address of the Inbox contract authorized to deliver messages.
     function initialize(address owner_, address stablecoin_, address inbox_) public initializer {
         __Ownable_init(owner_);
         stablecoin = Stablecoin(stablecoin_);
@@ -41,10 +45,14 @@ contract BridgeMinter is Initializable, OwnableUpgradeable, UUPSUpgradeable, IMe
         emit AllowedSenderSet(srcChain, sender);
     }
 
+    /// @notice Update the Inbox contract reference.
+    /// @param inbox_ Address of the new Inbox contract.
     function setInbox(address inbox_) external onlyOwner {
         inbox = inbox_;
     }
 
+    /// @notice Update the stablecoin contract reference.
+    /// @param stablecoin_ Address of the new stablecoin contract.
     function setStablecoin(address stablecoin_) external onlyOwner {
         stablecoin = Stablecoin(stablecoin_);
     }
@@ -61,5 +69,6 @@ contract BridgeMinter is Initializable, OwnableUpgradeable, UUPSUpgradeable, IMe
         stablecoin.mint(recipient, amount);
     }
 
+    /// @dev Authorize UUPS upgrades. Restricted to the contract owner.
     function _authorizeUpgrade(address) internal override onlyOwner {}
 }
