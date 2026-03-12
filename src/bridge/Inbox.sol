@@ -39,7 +39,6 @@ contract Inbox is Initializable, OwnableUpgradeable, UUPSUpgradeable, EIP712Upgr
     error SignerNotAttestor(address signer);
     error NonceAlreadyUsed(bytes32 nonce);
     error WrongDestinationChain(uint256 expected, uint256 actual);
-    error ThresholdTooHigh(uint256 threshold, uint256 attestorCount);
     error ZeroAddress();
     error AlreadyAttestor(address attestor);
     error NotAttestor(address attestor);
