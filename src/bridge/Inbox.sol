@@ -48,17 +48,24 @@ contract Inbox is Initializable, OwnableUpgradeable, UUPSUpgradeable, EIP712Upgr
         _disableInitializers();
     }
 
+    /// @notice Initialize the Inbox proxy with an owner and EIP-712 domain.
+    /// @param owner_ Address that will own the contract (can manage attestors, threshold, and upgrades).
     function initialize(address owner_) public initializer {
         __Ownable_init(owner_);
         __EIP712_init("Inbox", "1");
     }
 
+    /// @notice Check whether an address is a recognized attestor.
+    /// @param account Address to check.
+    /// @return True if the address is an active attestor.
     function isAttestor(address account) public view returns (bool) {
         return _isAttestor(account);
     }
 
     // ─── Attestor management (owner-only) ────────────────────────────
 
+    /// @notice Add an address to the attestor set.
+    /// @param attestor Address to add. Must not be zero or already an attestor.
     function addAttestor(address attestor) external onlyOwner {
         require(attestor != address(0), ZeroAddress());
         require(!_isAttestor(attestor), AlreadyAttestor(attestor));
@@ -66,12 +73,21 @@ contract Inbox is Initializable, OwnableUpgradeable, UUPSUpgradeable, EIP712Upgr
         emit AttestorAdded(attestor);
     }
 
+    /// @notice Remove an address from the attestor set.
+    /// @dev WARNING: if removing this attestor leaves fewer active attestors than the current
+    /// threshold, all message delivery will be blocked until the threshold is lowered or new
+    /// attestors are added.
+    /// @param attestor Address to remove. Must be a current attestor.
     function removeAttestor(address attestor) external onlyOwner {
         require(_isAttestor(attestor), NotAttestor(attestor));
         _attestor[attestor] = 0;
         emit AttestorRemoved(attestor);
     }
 
+    /// @notice Update the minimum number of attestor signatures required to deliver a message.
+    /// @dev WARNING: a threshold of 0 or higher than the number of active attestors will cause
+    /// all message delivery to be rejected until the threshold is updated.
+    /// @param threshold_ New threshold value.
     function setThreshold(uint256 threshold_) external onlyOwner {
         threshold = threshold_;
         emit ThresholdSet(threshold_);
@@ -109,12 +125,17 @@ contract Inbox is Initializable, OwnableUpgradeable, UUPSUpgradeable, EIP712Upgr
 
     // ─── EIP-712 ─────────────────────────────────────────────────────
 
+    /// @notice Return the EIP-712 domain separator for this contract.
+    /// @return The domain separator hash, bound to the contract address and chain ID.
     function domainSeparator() public view returns (bytes32) {
         return _domainSeparatorV4();
     }
 
     // ─── Internal ────────────────────────────────────────────────────
 
+    /// @dev Verify that `signatures` contains at least `threshold` valid attestor signatures
+    /// over the EIP-712 digest of `message`. Signatures must be sorted by signer address
+    /// in ascending order to detect duplicates in O(n).
     function _verifySignatures(bytes calldata message, bytes calldata signatures) internal view {
         // Fail-closed: reject all messages when threshold is unconfigured (zero).
         require(threshold > 0, BelowThreshold());
@@ -154,9 +175,11 @@ contract Inbox is Initializable, OwnableUpgradeable, UUPSUpgradeable, EIP712Upgr
         return _hashTypedDataV4(structHash);
     }
 
+    /// @dev Return whether `account` is in the attestor set.
     function _isAttestor(address account) private view returns (bool) {
         return _attestor[account] != 0;
     }
 
+    /// @dev Authorize UUPS upgrades. Restricted to the contract owner.
     function _authorizeUpgrade(address) internal override onlyOwner {}
 }

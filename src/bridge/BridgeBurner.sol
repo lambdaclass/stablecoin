@@ -28,6 +28,10 @@ contract BridgeBurner is Initializable, OwnableUpgradeable, UUPSUpgradeable, IBr
         _disableInitializers();
     }
 
+    /// @notice Initialize the BridgeBurner proxy.
+    /// @param owner_ Address that will own the contract (can configure and upgrade).
+    /// @param stablecoin_ Address of the stablecoin contract to burn tokens from.
+    /// @param outbox_ Address of the Outbox contract used to send cross-chain messages.
     function initialize(address owner_, address stablecoin_, address outbox_) public initializer {
         __Ownable_init(owner_);
         stablecoin = Stablecoin(stablecoin_);
@@ -40,10 +44,14 @@ contract BridgeBurner is Initializable, OwnableUpgradeable, UUPSUpgradeable, IBr
         emit DstMinterSet(dstChain, minter);
     }
 
+    /// @notice Update the Outbox contract reference.
+    /// @param outbox_ Address of the new Outbox contract.
     function setOutbox(address outbox_) external onlyOwner {
         outbox = IOutbox(outbox_);
     }
 
+    /// @notice Update the stablecoin contract reference.
+    /// @param stablecoin_ Address of the new stablecoin contract.
     function setStablecoin(address stablecoin_) external onlyOwner {
         stablecoin = Stablecoin(stablecoin_);
     }
@@ -61,5 +69,6 @@ contract BridgeBurner is Initializable, OwnableUpgradeable, UUPSUpgradeable, IBr
         outbox.sendMessage(dstChain, minter, payload);
     }
 
+    /// @dev Authorize UUPS upgrades. Restricted to the contract owner.
     function _authorizeUpgrade(address) internal override onlyOwner {}
 }

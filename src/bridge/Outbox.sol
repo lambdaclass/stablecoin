@@ -15,6 +15,8 @@ contract Outbox is Initializable, OwnableUpgradeable, UUPSUpgradeable, IOutbox {
         _disableInitializers();
     }
 
+    /// @notice Initialize the Outbox proxy with an owner.
+    /// @param owner_ Address that will own the contract (can authorize upgrades).
     function initialize(address owner_) public initializer {
         __Ownable_init(owner_);
     }
@@ -24,5 +26,6 @@ contract Outbox is Initializable, OwnableUpgradeable, UUPSUpgradeable, IOutbox {
         emit MessageSent(msg.sender, dstChain, dstRecipient, payload);
     }
 
+    /// @dev Authorize UUPS upgrades. Restricted to the contract owner.
     function _authorizeUpgrade(address) internal override onlyOwner {}
 }
