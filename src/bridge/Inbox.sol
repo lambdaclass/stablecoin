@@ -111,9 +111,7 @@ contract Inbox is Initializable, OwnableUpgradeable, UUPSUpgradeable, EIP712Upgr
         require(signatures.length == sigCount * 65, InvalidSignatureCount());
         require(sigCount >= threshold, BelowThreshold());
 
-        // Hash the raw message bytes with EIP-712
-        bytes32 structHash = keccak256(message);
-        bytes32 digest = _hashTypedDataV4(structHash);
+        bytes32 digest = _hashMessage(message);
 
         address prevSigner = address(0);
         for (uint256 i = 0; i < sigCount; i++) {
@@ -126,6 +124,23 @@ contract Inbox is Initializable, OwnableUpgradeable, UUPSUpgradeable, EIP712Upgr
 
             prevSigner = signer;
         }
+    }
+
+    /// @notice Hashes raw message bytes with the EIP-712 domain separator for
+    /// chain/contract binding, without full EIP-712 struct encoding (no
+    /// typeHash prefix) since attestors are automated, not wallet signers.
+    function _hashMessage(bytes calldata message) internal view returns (bytes32) {
+        bytes32 structHash;
+
+        // Uses assembly to avoid a memory allocation: hashes at the free
+        // pointer as scratch space without advancing it.
+        assembly ("memory-safe") {
+            let ptr := mload(0x40)
+            calldatacopy(ptr, message.offset, message.length)
+            structHash := keccak256(ptr, message.length)
+        }
+
+        return _hashTypedDataV4(structHash);
     }
 
     function _authorizeUpgrade(address) internal override onlyOwner {}
