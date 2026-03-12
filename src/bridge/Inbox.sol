@@ -16,11 +16,17 @@ contract Inbox is Initializable, OwnableUpgradeable, UUPSUpgradeable, EIP712Upgr
     /// @notice Minimum number of valid attestor signatures required.
     uint256 public threshold;
 
-    /// @notice Set of recognized attestors.
-    mapping(address => bool) public isAttestor;
+    /// @notice Set of recognized attestors (nonzero = active).
+    /// @dev Uses uint256 instead of bool to skip the read-modify-write the
+    /// compiler emits for sub-word types. See OZ ReentrancyGuard for rationale:
+    /// https://github.com/OpenZeppelin/openzeppelin-contracts/blob/fcbae5394ae8ad52d8e580a3477db99814b9d565/contracts/utils/ReentrancyGuard.sol#L39-L43
+    mapping(address => uint256) private _attestor;
 
-    /// @notice Nonces that have already been consumed (replay protection).
-    mapping(bytes32 => bool) public usedNonces;
+    /// @notice Nonces that have already been consumed (nonzero = used).
+    /// @dev Uses uint256 instead of bool to skip the read-modify-write the
+    /// compiler emits for sub-word types. See OZ ReentrancyGuard for rationale:
+    /// https://github.com/OpenZeppelin/openzeppelin-contracts/blob/fcbae5394ae8ad52d8e580a3477db99814b9d565/contracts/utils/ReentrancyGuard.sol#L39-L43
+    mapping(bytes32 => uint256) public usedNonces;
 
     event MessageDelivered(bytes32 indexed nonce, address indexed dstRecipient);
     event AttestorAdded(address indexed attestor);
@@ -48,18 +54,22 @@ contract Inbox is Initializable, OwnableUpgradeable, UUPSUpgradeable, EIP712Upgr
         __EIP712_init("Inbox", "1");
     }
 
+    function isAttestor(address account) public view returns (bool) {
+        return _isAttestor(account);
+    }
+
     // ─── Attestor management (owner-only) ────────────────────────────
 
     function addAttestor(address attestor) external onlyOwner {
         require(attestor != address(0), ZeroAddress());
-        require(!isAttestor[attestor], AlreadyAttestor(attestor));
-        isAttestor[attestor] = true;
+        require(!_isAttestor(attestor), AlreadyAttestor(attestor));
+        _attestor[attestor] = 1;
         emit AttestorAdded(attestor);
     }
 
     function removeAttestor(address attestor) external onlyOwner {
-        require(isAttestor[attestor], NotAttestor(attestor));
-        isAttestor[attestor] = false;
+        require(_isAttestor(attestor), NotAttestor(attestor));
+        _attestor[attestor] = 0;
         emit AttestorRemoved(attestor);
     }
 
@@ -86,8 +96,8 @@ contract Inbox is Initializable, OwnableUpgradeable, UUPSUpgradeable, EIP712Upgr
         require(dstChain == block.chainid, WrongDestinationChain(block.chainid, dstChain));
 
         // Check nonce replay
-        require(!usedNonces[nonce], NonceAlreadyUsed(nonce));
-        usedNonces[nonce] = true;
+        require(usedNonces[nonce] == 0, NonceAlreadyUsed(nonce));
+        usedNonces[nonce] = 1;
 
         // Verify signatures
         _verifySignatures(message, signatures);
@@ -120,7 +130,7 @@ contract Inbox is Initializable, OwnableUpgradeable, UUPSUpgradeable, EIP712Upgr
 
             // Enforce ascending order to detect duplicates in O(n)
             require(signer > prevSigner, DuplicateSigner());
-            require(isAttestor[signer], SignerNotAttestor(signer));
+            require(_isAttestor(signer), SignerNotAttestor(signer));
 
             prevSigner = signer;
         }
@@ -141,6 +151,10 @@ contract Inbox is Initializable, OwnableUpgradeable, UUPSUpgradeable, EIP712Upgr
         }
 
         return _hashTypedDataV4(structHash);
+    }
+
+    function _isAttestor(address account) private view returns (bool) {
+        return _attestor[account] != 0;
     }
 
     function _authorizeUpgrade(address) internal override onlyOwner {}
