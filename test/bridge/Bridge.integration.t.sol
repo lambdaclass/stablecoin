@@ -31,6 +31,8 @@ contract BridgeIntegrationTest is Test {
 
     uint256 constant INITIAL_SUPPLY = 100_000e6;
     uint256 constant MINTER_ALLOWANCE = 1_000_000e6;
+    uint256 constant PREMINT_AMOUNT = 1000e6;
+    address constant PREMINT_RECEIVER = address(0xAAAA);
 
     // Per-chain state
     struct ChainState {
@@ -333,6 +335,12 @@ contract BridgeIntegrationTest is Test {
         state.bridge.inbox.addAttestor(attestor2);
         state.bridge.inbox.addAttestor(attestor3);
         state.bridge.inbox.setThreshold(2);
+
+        // Pre-mint tokens so totalSupply is non-zero before tests run,
+        // avoiding inflated gas costs from cold SSTORE on first mint.
+        state.stablecoin.addMinter(ADMIN, PREMINT_AMOUNT);
+        state.stablecoin.mint(PREMINT_RECEIVER, PREMINT_AMOUNT);
+        state.stablecoin.removeMinter(ADMIN);
 
         vm.stopPrank();
     }
