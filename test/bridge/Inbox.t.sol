@@ -198,4 +198,70 @@ contract InboxTest is BridgeTestBase {
         vm.expectRevert(Inbox.InvalidSignatureCount.selector);
         bridge.inbox.recvMessage(message, badSigs);
     }
+
+    // ─── Selector collision safety ──────────
+
+    /// @dev Verify that handleMessage's selector doesn't collide with any
+    /// function on contracts the Inbox might be tricked into calling.
+    ///
+    /// Attack scenario: attacker sets dstRecipient to an unrelated contract
+    /// (e.g. the Stablecoin). Inbox calls handleMessage(srcChain, srcSender,
+    /// payload) on it. If the selector collides with e.g. mint(address,uint256),
+    /// the target interprets the call as that function. The attacker controls
+    /// srcChain, srcSender, and payload, so they can craft arguments to match
+    /// the colliding function's ABI layout.
+    ///
+    /// Our bridge shouldn't be affected since the Inbox only has permission to
+    /// call BridgeMinter.handleMessage, but this is a defense-in-depth check
+    /// inspired by previous bridge exploits where selector collisions were used
+    /// to invoke privileged functions through relay contracts.
+    function test_NoHandleMessageSelectorCollision() public pure {
+        bytes4 handleMessage = IMessageReceiver.handleMessage.selector;
+
+        // ERC20 core
+        bytes4[6] memory erc20 = [
+            bytes4(keccak256("transfer(address,uint256)")),
+            bytes4(keccak256("transferFrom(address,address,uint256)")),
+            bytes4(keccak256("approve(address,uint256)")),
+            bytes4(keccak256("mint(address,uint256)")),
+            bytes4(keccak256("burn(uint256)")),
+            bytes4(keccak256("burnFrom(address,uint256)"))
+        ];
+
+        // AccessControl + Ownable
+        bytes4[5] memory access = [
+            bytes4(keccak256("grantRole(bytes32,address)")),
+            bytes4(keccak256("revokeRole(bytes32,address)")),
+            bytes4(keccak256("renounceRole(bytes32,address)")),
+            bytes4(keccak256("transferOwnership(address)")),
+            bytes4(keccak256("renounceOwnership()"))
+        ];
+
+        // UUPS + Proxy
+        bytes4[2] memory proxy =
+            [bytes4(keccak256("upgradeToAndCall(address,bytes)")), bytes4(keccak256("proxiableUUID()"))];
+
+        // Stablecoin-specific
+        bytes4[6] memory stablecoin = [
+            bytes4(keccak256("addMinter(address,uint256)")),
+            bytes4(keccak256("removeMinter(address)")),
+            bytes4(keccak256("modifyMinterAllowance(address,uint256)")),
+            bytes4(keccak256("freeze(address)")),
+            bytes4(keccak256("unfreeze(address)")),
+            bytes4(keccak256("pause()"))
+        ];
+
+        for (uint256 i = 0; i < erc20.length; i++) {
+            assertTrue(handleMessage != erc20[i], "handleMessage collides with ERC20 selector");
+        }
+        for (uint256 i = 0; i < access.length; i++) {
+            assertTrue(handleMessage != access[i], "handleMessage collides with access control selector");
+        }
+        for (uint256 i = 0; i < proxy.length; i++) {
+            assertTrue(handleMessage != proxy[i], "handleMessage collides with proxy selector");
+        }
+        for (uint256 i = 0; i < stablecoin.length; i++) {
+            assertTrue(handleMessage != stablecoin[i], "handleMessage collides with Stablecoin selector");
+        }
+    }
 }
