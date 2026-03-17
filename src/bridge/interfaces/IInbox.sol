@@ -17,4 +17,8 @@ interface IInbox {
     /// @notice Return the number of active attestors.
     /// @return The size of the attestor set.
     function getAttestorCount() external view returns (uint256);
+
+    /// @notice Return the EIP-712 domain separator for this contract.
+    /// @return The domain separator hash, bound to the contract address and chain ID.
+    function domainSeparator() external view returns (bytes32);
 }
