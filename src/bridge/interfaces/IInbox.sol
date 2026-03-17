@@ -9,4 +9,12 @@ interface IInbox {
     /// @param message ABI-encoded (srcChain, srcSender, dstChain, dstRecipient, nonce, payload).
     /// @param signatures Packed ECDSA signatures (65 bytes each: r[32] || s[32] || v[1]).
     function recvMessage(bytes calldata message, bytes calldata signatures) external;
+
+    /// @notice Return the full list of current attestor addresses.
+    /// @return Array of attestor addresses (order is not guaranteed to be stable).
+    function getAttestors() external view returns (address[] memory);
+
+    /// @notice Return the number of active attestors.
+    /// @return The size of the attestor set.
+    function getAttestorCount() external view returns (uint256);
 }

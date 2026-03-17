@@ -6,6 +6,7 @@ import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/U
 import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 import {EIP712Upgradeable} from "@openzeppelin/contracts-upgradeable/utils/cryptography/EIP712Upgradeable.sol";
 import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
+import {EnumerableSet} from "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
 import {IInbox} from "./interfaces/IInbox.sol";
 import {IMessageReceiver} from "./interfaces/IMessageReceiver.sol";
 
@@ -13,14 +14,13 @@ import {IMessageReceiver} from "./interfaces/IMessageReceiver.sol";
 /// @notice Generic message inbox with k-of-n EIP-712 attestor verification, nonce replay protection,
 /// and message delivery to receiver contracts.
 contract Inbox is Initializable, OwnableUpgradeable, UUPSUpgradeable, EIP712Upgradeable, IInbox {
+    using EnumerableSet for EnumerableSet.AddressSet;
+
     /// @notice Minimum number of valid attestor signatures required.
     uint256 public threshold;
 
-    /// @notice Set of recognized attestors (nonzero = active).
-    /// @dev Uses uint256 instead of bool to skip the read-modify-write the
-    /// compiler emits for sub-word types. See OZ ReentrancyGuard for rationale:
-    /// https://github.com/OpenZeppelin/openzeppelin-contracts/blob/fcbae5394ae8ad52d8e580a3477db99814b9d565/contracts/utils/ReentrancyGuard.sol#L39-L43
-    mapping(address => uint256) private _isAttestor;
+    /// @notice Set of recognized attestors (enumerable for off-chain queries).
+    EnumerableSet.AddressSet private _attestors;
 
     /// @notice Nonces that have already been consumed (nonzero = used).
     /// @dev Uses uint256 instead of bool to skip the read-modify-write the
@@ -59,7 +59,19 @@ contract Inbox is Initializable, OwnableUpgradeable, UUPSUpgradeable, EIP712Upgr
     /// @param account Address to check.
     /// @return True if the address is an active attestor.
     function isAttestor(address account) public view returns (bool) {
-        return _isAttestor[account] != 0;
+        return _attestors.contains(account);
+    }
+
+    /// @notice Return the full list of current attestor addresses.
+    /// @return Array of attestor addresses (order is not guaranteed to be stable).
+    function getAttestors() external view returns (address[] memory) {
+        return _attestors.values();
+    }
+
+    /// @notice Return the number of active attestors.
+    /// @return The size of the attestor set.
+    function getAttestorCount() external view returns (uint256) {
+        return _attestors.length();
     }
 
     // ─── Attestor management (owner-only) ────────────────────────────
@@ -68,8 +80,7 @@ contract Inbox is Initializable, OwnableUpgradeable, UUPSUpgradeable, EIP712Upgr
     /// @param attestor Address to add. Must not be zero or already an attestor.
     function addAttestor(address attestor) external onlyOwner {
         require(attestor != address(0), ZeroAddress());
-        require(!isAttestor(attestor), AlreadyAttestor(attestor));
-        _isAttestor[attestor] = 1;
+        require(_attestors.add(attestor), AlreadyAttestor(attestor));
         emit AttestorAdded(attestor);
     }
 
@@ -79,8 +90,7 @@ contract Inbox is Initializable, OwnableUpgradeable, UUPSUpgradeable, EIP712Upgr
     /// attestors are added.
     /// @param attestor Address to remove. Must be a current attestor.
     function removeAttestor(address attestor) external onlyOwner {
-        require(isAttestor(attestor), NotAttestor(attestor));
-        _isAttestor[attestor] = 0;
+        require(_attestors.remove(attestor), NotAttestor(attestor));
         emit AttestorRemoved(attestor);
     }
 
@@ -152,7 +162,7 @@ contract Inbox is Initializable, OwnableUpgradeable, UUPSUpgradeable, EIP712Upgr
 
             // Enforce ascending order to detect duplicates in O(n)
             require(signer > prevSigner, DuplicateSigner());
-            require(_isAttestor[signer] != 0, SignerNotAttestor(signer));
+            require(isAttestor(signer), SignerNotAttestor(signer));
 
             prevSigner = signer;
         }
