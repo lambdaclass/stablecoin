@@ -257,3 +257,51 @@ The deploy and configuration logic lives in two Solidity libraries, so both the 
 | 7 | Add BridgeMinter as minter on Stablecoin (with allowance) | Allowance from config file |
 | 8 | Configure Inbox | Add attestors, set threshold |
 | 9 | Configure BridgeMinter | Set allowed senders per source chain (per-chain) |
+
+## Future Ideas
+
+Design ideas that were considered during development but deferred. These can be added without breaking the existing architecture.
+
+### Batch message delivery
+
+`recvMessage` verifies k-of-n EIP-712 signatures for every call. When posting many messages in a single transaction, this is redundant: the same k attestors can sign the entire batch once, and the contract verifies those k signatures one time then delivers each message individually.
+
+**Estimated savings:** ~50% cost reduction per message at batch size 10.
+
+**How it works:** Instead of signing each `Message` struct individually, attestors sign a `BatchMessage` struct containing a hash commitment to the ordered message list. The contract reconstructs the commitment from the calldata and checks it against the batch signature before iterating over messages.
+
+This is an extension to the transport layer, not a replacement. `IInbox.recvMessage` continues to work unchanged.
+
+**Suggested interface:**
+
+```solidity
+interface IInboxBatch {
+    /// @notice Deliver multiple messages with a single k-of-n signature check.
+    /// @param messages ABI-encoded messages (same encoding as IInbox.recvMessage).
+    /// @param signatures Packed ECDSA signatures (65 bytes each) over the batch
+    ///                   EIP-712 struct, not over individual messages.
+    function recvMessageBatch(bytes[] calldata messages, bytes[] calldata signatures) external;
+}
+```
+
+The EIP-712 batch struct would commit to the ordered list of individual message hashes:
+
+```solidity
+// Signed by attestors instead of the per-message MessageHash struct.
+BatchMessage {
+    bytes32[] messageHashes; // keccak256 of each individual encoded message, in order
+}
+```
+
+### Multiple BridgeBurner/Minter contracts per chain
+
+It is possible to deploy multiple burner and minter contract pairs on the same chain. Each pair registers independently: `BridgeMinter.allowedSenders[srcChain]` maps to a specific `BridgeBurner` address, so multiple burners on source chains can coexist as long as each destination minter is configured to accept the right source sender.
+
+This is useful for offering different bridge tiers without upgrading existing contracts. For example:
+
+| Tier | Finality | Fee | Use case |
+|------|----------|-----|----------|
+| Standard | Full finality (slow) | None | Normal transfers |
+| Fast | Soft finality (optimistic) | Protocol fee | Time-sensitive transfers |
+
+The fast-finality burner/minter pair reuses the same Outbox and Inbox. Because the Outbox is stateless and the payload is opaque to the transport layer, the fast-finality `BridgeBurner` can include a signal in the message payload (or the off-chain service can identify it by the `srcSender` address) to instruct the attestation service to attest after soft finality instead of waiting for full finality. Users choose which burner to call; the transport infrastructure and attestor set remain shared.
