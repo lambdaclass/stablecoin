@@ -20,6 +20,8 @@ contract BridgeMinter is Initializable, OwnableUpgradeable, UUPSUpgradeable, IMe
     mapping(uint256 => address) public allowedSenders;
 
     event AllowedSenderSet(uint256 indexed srcChain, address sender);
+    event InboxSet(address inbox);
+    event StablecoinSet(address stablecoin);
 
     error OnlyInbox();
     error DisallowedSender(uint256 srcChain, address srcSender);
@@ -49,12 +51,14 @@ contract BridgeMinter is Initializable, OwnableUpgradeable, UUPSUpgradeable, IMe
     /// @param inbox_ Address of the new Inbox contract.
     function setInbox(address inbox_) external onlyOwner {
         inbox = inbox_;
+        emit InboxSet(inbox_);
     }
 
     /// @notice Update the stablecoin contract reference.
     /// @param stablecoin_ Address of the new stablecoin contract.
     function setStablecoin(address stablecoin_) external onlyOwner {
         stablecoin = Stablecoin(stablecoin_);
+        emit StablecoinSet(stablecoin_);
     }
 
     /// @inheritdoc IMessageReceiver

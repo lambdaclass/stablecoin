@@ -20,6 +20,8 @@ contract BridgeBurner is Initializable, OwnableUpgradeable, UUPSUpgradeable, IBr
     mapping(uint256 => address) public dstMinters;
 
     event DstMinterSet(uint256 indexed dstChain, address minter);
+    event OutboxSet(address outbox);
+    event StablecoinSet(address stablecoin);
 
     error DstMinterNotSet(uint256 dstChain);
 
@@ -48,12 +50,14 @@ contract BridgeBurner is Initializable, OwnableUpgradeable, UUPSUpgradeable, IBr
     /// @param outbox_ Address of the new Outbox contract.
     function setOutbox(address outbox_) external onlyOwner {
         outbox = IOutbox(outbox_);
+        emit OutboxSet(outbox_);
     }
 
     /// @notice Update the stablecoin contract reference.
     /// @param stablecoin_ Address of the new stablecoin contract.
     function setStablecoin(address stablecoin_) external onlyOwner {
         stablecoin = Stablecoin(stablecoin_);
+        emit StablecoinSet(stablecoin_);
     }
 
     /// @inheritdoc IBridgeBurner
