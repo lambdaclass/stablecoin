@@ -186,6 +186,43 @@ contract InboxTest is BridgeTestBase {
         bridge.inbox.removeAttestor(address(0x1111));
     }
 
+    // ─── Attestor enumeration ───────────────────────────────────────
+
+    function test_GetAttestorsReturnsAllActive() public view {
+        address[] memory attestors = bridge.inbox.getAttestors();
+        assertEq(attestors.length, 3);
+
+        // All three should be present (order not guaranteed)
+        bool found1;
+        bool found2;
+        bool found3;
+        for (uint256 i = 0; i < attestors.length; i++) {
+            if (attestors[i] == attestor1) found1 = true;
+            if (attestors[i] == attestor2) found2 = true;
+            if (attestors[i] == attestor3) found3 = true;
+        }
+        assertTrue(found1, "attestor1 missing");
+        assertTrue(found2, "attestor2 missing");
+        assertTrue(found3, "attestor3 missing");
+    }
+
+    function test_GetAttestorCount() public view {
+        assertEq(bridge.inbox.getAttestorCount(), 3);
+    }
+
+    function test_GetAttestorsAfterRemoval() public {
+        vm.prank(ADMIN);
+        bridge.inbox.removeAttestor(attestor2);
+
+        address[] memory attestors = bridge.inbox.getAttestors();
+        assertEq(attestors.length, 2);
+        assertEq(bridge.inbox.getAttestorCount(), 2);
+
+        for (uint256 i = 0; i < attestors.length; i++) {
+            assertTrue(attestors[i] != attestor2, "removed attestor still present");
+        }
+    }
+
     // ─── Invalid signature length ────────────────────────────────────
 
     function test_InvalidSignatureLengthReverts() public {
