@@ -24,6 +24,7 @@ contract BridgeBurner is Initializable, OwnableUpgradeable, UUPSUpgradeable, IBr
     event StablecoinSet(address stablecoin);
 
     error DstMinterNotSet(uint256 dstChain);
+    error ZeroAddress();
 
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
@@ -35,6 +36,8 @@ contract BridgeBurner is Initializable, OwnableUpgradeable, UUPSUpgradeable, IBr
     /// @param stablecoin_ Address of the stablecoin contract to burn tokens from.
     /// @param outbox_ Address of the Outbox contract used to send cross-chain messages.
     function initialize(address owner_, address stablecoin_, address outbox_) public initializer {
+        require(stablecoin_ != address(0), ZeroAddress());
+        require(outbox_ != address(0), ZeroAddress());
         __Ownable_init(owner_);
         stablecoin = Stablecoin(stablecoin_);
         outbox = IOutbox(outbox_);
@@ -49,6 +52,7 @@ contract BridgeBurner is Initializable, OwnableUpgradeable, UUPSUpgradeable, IBr
     /// @notice Update the Outbox contract reference.
     /// @param outbox_ Address of the new Outbox contract.
     function setOutbox(address outbox_) external onlyOwner {
+        require(outbox_ != address(0), ZeroAddress());
         outbox = IOutbox(outbox_);
         emit OutboxSet(outbox_);
     }
@@ -56,6 +60,7 @@ contract BridgeBurner is Initializable, OwnableUpgradeable, UUPSUpgradeable, IBr
     /// @notice Update the stablecoin contract reference.
     /// @param stablecoin_ Address of the new stablecoin contract.
     function setStablecoin(address stablecoin_) external onlyOwner {
+        require(stablecoin_ != address(0), ZeroAddress());
         stablecoin = Stablecoin(stablecoin_);
         emit StablecoinSet(stablecoin_);
     }
