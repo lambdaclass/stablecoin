@@ -26,10 +26,20 @@ library BridgeConfig {
         DstMinter[] dstMinters;
     }
 
+    error NoAttestors();
+    error ThresholdZero();
+    error ThresholdTooHigh(uint256 threshold, uint256 attestorCount);
+    error MinterAllowanceZero();
+    error ZeroAttestor(uint256 index);
+    error ZeroAllowedSender(uint256 index);
+    error ZeroDstMinter(uint256 index);
+
     /// @notice Configure all bridge contracts after deployment.
     /// @dev The caller must have ADMIN_ROLE on the stablecoin and be the owner of
     /// all bridge contracts.
     function configure(Stablecoin stablecoin, BridgeDeploy.Contracts memory c, Config memory config) internal {
+        _validateConfig(config);
+
         // 1. Grant BURNER_ROLE to BridgeBurner on the stablecoin
         stablecoin.grantRole(stablecoin.BURNER_ROLE(), address(c.bridgeBurner));
 
@@ -50,6 +60,31 @@ library BridgeConfig {
         // 5. Set BridgeBurner destination minters (dstChain => BridgeMinter address on that chain)
         for (uint256 i = 0; i < config.dstMinters.length; i++) {
             c.bridgeBurner.setDstMinter(config.dstMinters[i].dstChain, config.dstMinters[i].minter);
+        }
+    }
+
+    /// @dev Validate the entire config before any state changes, so configure either
+    /// fully succeeds or reverts without partial side effects.
+    function _validateConfig(Config memory config) private pure {
+        // Attestor / threshold coherence
+        require(config.attestors.length > 0, NoAttestors());
+        require(config.threshold > 0, ThresholdZero());
+        require(
+            config.threshold <= config.attestors.length, ThresholdTooHigh(config.threshold, config.attestors.length)
+        );
+
+        // Minter allowance
+        require(config.minterAllowance > 0, MinterAllowanceZero());
+
+        // Zero-address checks on array entries
+        for (uint256 i = 0; i < config.attestors.length; i++) {
+            require(config.attestors[i] != address(0), ZeroAttestor(i));
+        }
+        for (uint256 i = 0; i < config.allowedSenders.length; i++) {
+            require(config.allowedSenders[i].sender != address(0), ZeroAllowedSender(i));
+        }
+        for (uint256 i = 0; i < config.dstMinters.length; i++) {
+            require(config.dstMinters[i].minter != address(0), ZeroDstMinter(i));
         }
     }
 }
