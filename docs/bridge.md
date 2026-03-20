@@ -1,6 +1,6 @@
 # How the stablecoin bridge works
 
-A burn-and-mint bridge that moves stablecoin tokens between EVM chains. Tokens are burned on the source chain, an off-chain attestation service confirms the burn after finality, and equivalent tokens are minted on the destination chain. The bridge uses a k-of-n attestor threshold with EIP-712 typed signatures for security.
+A burn-and-mint bridge that moves stablecoin tokens between EVM chains. Tokens are burned on the source chain, an off-chain attestation service confirms the burn after finality, and equivalent tokens are minted on the destination chain. The bridge uses a k-of-n attestor threshold with EIP-712 domain-bound signatures for security.
 
 ## Contracts
 
@@ -8,8 +8,8 @@ A burn-and-mint bridge that moves stablecoin tokens between EVM chains. Tokens a
 |---|---|
 | **Outbox** | Generic message outbox. Accepts messages from senders and emits events for the off-chain attestation service. Stateless. |
 | **Inbox** | Generic message inbox. Verifies k-of-n EIP-712 attestor signatures, enforces replay protection via nonces, and delivers payloads to destination contracts. Ownable (attestor set and threshold management). |
-| **BridgeBurner** | Application-level bridge entry point. Burns tokens from the user via the stablecoin's `burnFrom`, then sends a message through the Outbox. Ownable (configuration management). |
-| **BridgeMinter** | Application-level bridge exit point. Receives messages from the Inbox, verifies the source chain and sender against an allowed senders mapping, then mints tokens to the recipient. Holds MINTER_ROLE on the stablecoin. |
+| **BridgeBurner** | Application-level bridge entry point. Burns tokens from the user via the stablecoin's `burnFrom`, looks up the destination BridgeMinter address from `dstMinters[dstChain]`, then sends a message through the Outbox. Ownable (configuration: outbox, stablecoin, destination minters). |
+| **BridgeMinter** | Application-level bridge exit point. Receives messages from the Inbox, verifies the source chain and sender against an allowed senders mapping, then mints tokens to the recipient. Holds MINTER_ROLE on the stablecoin. Ownable (configuration: inbox, stablecoin, allowed senders). |
 | **TokenMintMessage** | Library for encoding and decoding the application-level payload (recipient + amount). Used by both BridgeBurner and BridgeMinter. |
 
 All contracts are UUPS upgradeable.
@@ -98,6 +98,10 @@ interface IInbox {
     /// @param message ABI-encoded (srcChain, srcSender, dstChain, dstRecipient, nonce, payload).
     /// @param signatures Packed ECDSA signatures (65 bytes each: r[32] || s[32] || v[1]).
     function recvMessage(bytes calldata message, bytes calldata signatures) external;
+
+    function getAttestors() external view returns (address[] memory);
+    function getAttestorCount() external view returns (uint256);
+    function domainSeparator() external view returns (bytes32);
 }
 ```
 
@@ -197,8 +201,8 @@ sequenceDiagram
 
 The bridge uses a k-of-n attestor threshold for message verification:
 
-- Attestors sign messages using **EIP-712 typed structured data**, with the domain separator bound to the Inbox contract address and destination chain ID. This prevents cross-chain and cross-contract replay of signatures.
-- The **threshold k is configurable**.
+- Attestors sign messages using the **EIP-712 domain separator** for chain and contract binding, but without full EIP-712 struct encoding (no typeHash prefix). The raw ABI-encoded message bytes are hashed and then wrapped with `_hashTypedDataV4`, binding the digest to the Inbox contract address and destination chain ID. This prevents cross-chain and cross-contract replay of signatures. The simplified scheme is sufficient because attestors are automated services, not wallet signers that need human-readable type information.
+- The **threshold k is configurable**. The Inbox rejects all incoming messages when the threshold is zero, so an unconfigured Inbox is fail-closed by default.
 - The **attestor set is updatable** via `addAttestor` and `removeAttestor`.
 
 ### Access control
@@ -210,11 +214,11 @@ The bridge uses a k-of-n attestor threshold for message verification:
 
 **BridgeBurner** has no access control on `sendTo` itself, since the user's own ERC20 approval gates the burn.
 
-All bridge contracts (Inbox, Outbox, BridgeBurner, BridgeMinter) are Ownable, with a setter and getter for the owner. Only the owner can update each contract's configuration (e.g., attestor set and threshold on the Inbox, outbox reference on the BridgeBurner). Since whoever controls the Inbox's attestor set controls what gets minted, the Inbox owner is effectively the bridge's trust root.
+All bridge contracts (Inbox, Outbox, BridgeBurner, BridgeMinter) are Ownable, with a setter and getter for the owner. Only the owner can update each contract's configuration: attestor set and threshold on the Inbox; outbox, stablecoin, and destination minters on the BridgeBurner; inbox, stablecoin, and allowed senders on the BridgeMinter. Since whoever controls the Inbox's attestor set controls what gets minted, the Inbox owner is effectively the bridge's trust root.
 
 ### Replay protection
 
-The off-chain server assigns an opaque `bytes32` nonce to each message. The Inbox tracks used nonces in a `mapping(bytes32 => bool)` and rejects any message with a previously seen nonce.
+The off-chain server assigns an opaque `bytes32` nonce to each message. The Inbox tracks used nonces in a `mapping(bytes32 => uint256)` (0 = unused, 1 = used) and rejects any message with a previously seen nonce. The mapping uses `uint256` instead of `bool` to avoid the extra read-modify-write the compiler emits for sub-word storage types.
 
 ### Source chain finality
 
@@ -242,7 +246,7 @@ A single Foundry deployment script handles the full sequence. Per-chain configur
 The deploy and configuration logic lives in two Solidity libraries, so both the deployment script and tests can reuse the same code:
 
 - **BridgeDeploy**: deploys all contracts (implementation + proxy for each).
-- **BridgeConfig**: configures the deployed contracts (role grants, attestor set, allowed source chains, etc.).
+- **BridgeConfig**: configures the deployed contracts (stablecoin role grants, attestor set and threshold, allowed source chain senders on BridgeMinter, destination minter addresses on BridgeBurner).
 
 ### Deployment order
 
@@ -257,6 +261,7 @@ The deploy and configuration logic lives in two Solidity libraries, so both the 
 | 7 | Add BridgeMinter as minter on Stablecoin (with allowance) | Allowance from config file |
 | 8 | Configure Inbox | Add attestors, set threshold |
 | 9 | Configure BridgeMinter | Set allowed senders per source chain (per-chain) |
+| 10 | Configure BridgeBurner | Set destination minter addresses per chain (per-chain) |
 
 ## Future Ideas
 
