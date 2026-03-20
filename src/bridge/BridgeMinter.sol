@@ -69,10 +69,8 @@ contract BridgeMinter is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable
     /// @inheritdoc IMessageReceiver
     function handleMessage(uint256 srcChain, address srcSender, bytes calldata payload) external {
         require(msg.sender == inbox, OnlyInbox());
-        require(
-            allowedSenders[srcChain] != address(0) && allowedSenders[srcChain] == srcSender,
-            DisallowedSender(srcChain, srcSender)
-        );
+        address allowed = allowedSenders[srcChain];
+        require(allowed != address(0) && allowed == srcSender, DisallowedSender(srcChain, srcSender));
 
         (address recipient, uint256 amount) = TokenMintMessage.decode(payload);
         stablecoin.mint(recipient, amount);
