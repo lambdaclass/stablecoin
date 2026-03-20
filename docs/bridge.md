@@ -7,9 +7,9 @@ A burn-and-mint bridge that moves stablecoin tokens between EVM chains. Tokens a
 | Contract | Description |
 |---|---|
 | **Outbox** | Generic message outbox. Accepts messages from senders and emits events for the off-chain attestation service. Stateless. |
-| **Inbox** | Generic message inbox. Verifies k-of-n EIP-712 attestor signatures, enforces replay protection via nonces, and delivers payloads to destination contracts. Ownable (attestor set and threshold management). |
-| **BridgeBurner** | Application-level bridge entry point. Burns tokens from the user via the stablecoin's `burnFrom`, looks up the destination BridgeMinter address from `dstMinters[dstChain]`, then sends a message through the Outbox. Ownable (configuration: outbox, stablecoin, destination minters). |
-| **BridgeMinter** | Application-level bridge exit point. Receives messages from the Inbox, verifies the source chain and sender against an allowed senders mapping, then mints tokens to the recipient. Holds MINTER_ROLE on the stablecoin. Ownable (configuration: inbox, stablecoin, allowed senders). |
+| **Inbox** | Generic message inbox. Verifies k-of-n EIP-712 attestor signatures, enforces replay protection via nonces, and delivers payloads to destination contracts. Ownable2Step (attestor set and threshold management). |
+| **BridgeBurner** | Application-level bridge entry point. Burns tokens from the user via the stablecoin's `burnFrom`, looks up the destination BridgeMinter address from `dstMinters[dstChain]`, then sends a message through the Outbox. Ownable2Step (configuration: outbox, stablecoin, destination minters). |
+| **BridgeMinter** | Application-level bridge exit point. Receives messages from the Inbox, verifies the source chain and sender against an allowed senders mapping, then mints tokens to the recipient. Holds MINTER_ROLE on the stablecoin. Ownable2Step (configuration: inbox, stablecoin, allowed senders). |
 | **TokenMintMessage** | Library for encoding and decoding the application-level payload (recipient + amount). Used by both BridgeBurner and BridgeMinter. |
 
 All contracts are UUPS upgradeable.
@@ -214,7 +214,7 @@ The bridge uses a k-of-n attestor threshold for message verification:
 
 **BridgeBurner** has no access control on `sendTo` itself, since the user's own ERC20 approval gates the burn.
 
-All bridge contracts (Inbox, Outbox, BridgeBurner, BridgeMinter) are Ownable, with a setter and getter for the owner. Only the owner can update each contract's configuration: attestor set and threshold on the Inbox; outbox, stablecoin, and destination minters on the BridgeBurner; inbox, stablecoin, and allowed senders on the BridgeMinter. Since whoever controls the Inbox's attestor set controls what gets minted, the Inbox owner is effectively the bridge's trust root.
+All bridge contracts (Inbox, Outbox, BridgeBurner, BridgeMinter) use Ownable2Step, which requires the new owner to explicitly call `acceptOwnership()` before a transfer takes effect. This prevents accidental ownership transfers to incorrect addresses. Only the owner can update each contract's configuration: attestor set and threshold on the Inbox; outbox, stablecoin, and destination minters on the BridgeBurner; inbox, stablecoin, and allowed senders on the BridgeMinter. Since whoever controls the Inbox's attestor set controls what gets minted, the Inbox owner is effectively the bridge's trust root.
 
 ### Replay protection
 
