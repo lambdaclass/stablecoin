@@ -25,6 +25,7 @@ contract BridgeMinter is Initializable, OwnableUpgradeable, UUPSUpgradeable, IMe
 
     error OnlyInbox();
     error DisallowedSender(uint256 srcChain, address srcSender);
+    error ZeroAddress();
 
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
@@ -36,6 +37,8 @@ contract BridgeMinter is Initializable, OwnableUpgradeable, UUPSUpgradeable, IMe
     /// @param stablecoin_ Address of the stablecoin contract to mint tokens on.
     /// @param inbox_ Address of the Inbox contract authorized to deliver messages.
     function initialize(address owner_, address stablecoin_, address inbox_) public initializer {
+        require(stablecoin_ != address(0), ZeroAddress());
+        require(inbox_ != address(0), ZeroAddress());
         __Ownable_init(owner_);
         stablecoin = Stablecoin(stablecoin_);
         inbox = inbox_;
@@ -50,6 +53,7 @@ contract BridgeMinter is Initializable, OwnableUpgradeable, UUPSUpgradeable, IMe
     /// @notice Update the Inbox contract reference.
     /// @param inbox_ Address of the new Inbox contract.
     function setInbox(address inbox_) external onlyOwner {
+        require(inbox_ != address(0), ZeroAddress());
         inbox = inbox_;
         emit InboxSet(inbox_);
     }
@@ -57,6 +61,7 @@ contract BridgeMinter is Initializable, OwnableUpgradeable, UUPSUpgradeable, IMe
     /// @notice Update the stablecoin contract reference.
     /// @param stablecoin_ Address of the new stablecoin contract.
     function setStablecoin(address stablecoin_) external onlyOwner {
+        require(stablecoin_ != address(0), ZeroAddress());
         stablecoin = Stablecoin(stablecoin_);
         emit StablecoinSet(stablecoin_);
     }
