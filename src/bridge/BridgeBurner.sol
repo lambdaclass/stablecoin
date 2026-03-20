@@ -25,6 +25,9 @@ contract BridgeBurner is Initializable, OwnableUpgradeable, UUPSUpgradeable, IBr
 
     error DstMinterNotSet(uint256 dstChain);
     error ZeroAddress();
+    error ZeroRecipient();
+    error ZeroAmount();
+    error SameChain();
 
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
@@ -67,6 +70,10 @@ contract BridgeBurner is Initializable, OwnableUpgradeable, UUPSUpgradeable, IBr
 
     /// @inheritdoc IBridgeBurner
     function sendTo(uint256 dstChain, address recipient, uint256 amount) external {
+        require(dstChain != block.chainid, SameChain());
+        require(recipient != address(0), ZeroRecipient());
+        require(amount > 0, ZeroAmount());
+
         address minter = dstMinters[dstChain];
         require(minter != address(0), DstMinterNotSet(dstChain));
 
