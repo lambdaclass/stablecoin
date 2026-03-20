@@ -147,11 +147,14 @@ contract Inbox is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable, EIP71
     /// over the EIP-712 digest of `message`. Signatures must be sorted by signer address
     /// in ascending order to detect duplicates in O(n).
     function _verifySignatures(bytes calldata message, bytes calldata signatures) internal view {
+        // Cache storage read once for the two comparisons below.
+        uint256 threshold_ = threshold;
+
         // Fail-closed: reject all messages when threshold is unconfigured (zero).
-        require(threshold > 0, BelowThreshold());
+        require(threshold_ > 0, BelowThreshold());
         uint256 sigCount = signatures.length / 65;
         require(signatures.length == sigCount * 65, InvalidSignatureCount());
-        require(sigCount >= threshold, BelowThreshold());
+        require(sigCount >= threshold_, BelowThreshold());
 
         bytes32 digest = _hashMessage(message);
 
@@ -162,7 +165,7 @@ contract Inbox is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable, EIP71
 
             // Enforce ascending order to detect duplicates in O(n)
             require(signer > prevSigner, DuplicateSigner());
-            require(isAttestor(signer), SignerNotAttestor(signer));
+            require(_attestors.contains(signer), SignerNotAttestor(signer));
 
             prevSigner = signer;
         }
