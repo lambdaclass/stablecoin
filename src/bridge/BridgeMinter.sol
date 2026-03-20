@@ -3,7 +3,7 @@ pragma solidity =0.8.30;
 
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
-import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
+import {Ownable2StepUpgradeable} from "@openzeppelin/contracts-upgradeable/access/Ownable2StepUpgradeable.sol";
 import {IMessageReceiver} from "./interfaces/IMessageReceiver.sol";
 import {Stablecoin} from "../Stablecoin.sol";
 import {TokenMintMessage} from "./TokenMintMessage.sol";
@@ -11,7 +11,7 @@ import {TokenMintMessage} from "./TokenMintMessage.sol";
 /// @title BridgeMinter
 /// @notice Application-level bridge exit point. Receives messages from the Inbox,
 /// validates the source chain and sender, then mints tokens to the recipient.
-contract BridgeMinter is Initializable, OwnableUpgradeable, UUPSUpgradeable, IMessageReceiver {
+contract BridgeMinter is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable, IMessageReceiver {
     Stablecoin public stablecoin;
     address public inbox;
 
