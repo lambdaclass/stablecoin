@@ -3,13 +3,13 @@ pragma solidity =0.8.30;
 
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
-import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
+import {Ownable2StepUpgradeable} from "@openzeppelin/contracts-upgradeable/access/Ownable2StepUpgradeable.sol";
 import {IOutbox} from "./interfaces/IOutbox.sol";
 
 /// @title Outbox
 /// @notice Generic message outbox. Accepts messages and emits events for the off-chain attestation service.
 /// Stateless: does not track messages or nonces.
-contract Outbox is Initializable, OwnableUpgradeable, UUPSUpgradeable, IOutbox {
+contract Outbox is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable, IOutbox {
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
         _disableInitializers();

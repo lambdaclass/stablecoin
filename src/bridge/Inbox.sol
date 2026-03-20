@@ -3,7 +3,7 @@ pragma solidity =0.8.30;
 
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
-import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
+import {Ownable2StepUpgradeable} from "@openzeppelin/contracts-upgradeable/access/Ownable2StepUpgradeable.sol";
 import {EIP712Upgradeable} from "@openzeppelin/contracts-upgradeable/utils/cryptography/EIP712Upgradeable.sol";
 import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import {EnumerableSet} from "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
@@ -13,7 +13,7 @@ import {IMessageReceiver} from "./interfaces/IMessageReceiver.sol";
 /// @title Inbox
 /// @notice Generic message inbox with k-of-n EIP-712 attestor verification, nonce replay protection,
 /// and message delivery to receiver contracts.
-contract Inbox is Initializable, OwnableUpgradeable, UUPSUpgradeable, EIP712Upgradeable, IInbox {
+contract Inbox is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable, EIP712Upgradeable, IInbox {
     using EnumerableSet for EnumerableSet.AddressSet;
 
     /// @notice Minimum number of valid attestor signatures required.
