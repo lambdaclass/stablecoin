@@ -4,6 +4,7 @@ pragma solidity =0.8.30;
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import {Ownable2StepUpgradeable} from "@openzeppelin/contracts-upgradeable/access/Ownable2StepUpgradeable.sol";
+import {PausableUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/PausableUpgradeable.sol";
 import {EIP712Upgradeable} from "@openzeppelin/contracts-upgradeable/utils/cryptography/EIP712Upgradeable.sol";
 import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import {EnumerableSet} from "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
@@ -13,7 +14,14 @@ import {IMessageReceiver} from "./interfaces/IMessageReceiver.sol";
 /// @title Inbox
 /// @notice Generic message inbox with k-of-n EIP-712 attestor verification, nonce replay protection,
 /// and message delivery to receiver contracts.
-contract Inbox is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable, EIP712Upgradeable, IInbox {
+contract Inbox is
+    Initializable,
+    Ownable2StepUpgradeable,
+    PausableUpgradeable,
+    UUPSUpgradeable,
+    EIP712Upgradeable,
+    IInbox
+{
     using EnumerableSet for EnumerableSet.AddressSet;
 
     /// @notice Minimum number of valid attestor signatures required.
@@ -52,6 +60,7 @@ contract Inbox is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable, EIP71
     /// @param owner_ Address that will own the contract (can manage attestors, threshold, and upgrades).
     function initialize(address owner_) public initializer {
         __Ownable_init(owner_);
+        __Pausable_init();
         __EIP712_init("Inbox", "1");
     }
 
@@ -106,7 +115,7 @@ contract Inbox is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable, EIP71
     // ─── Message reception ───────────────────────────────────────────
 
     /// @inheritdoc IInbox
-    function recvMessage(bytes calldata message, bytes calldata signatures) external {
+    function recvMessage(bytes calldata message, bytes calldata signatures) external whenNotPaused {
         // Decode the transport-level message
         (
             uint256 srcChain,
@@ -186,6 +195,16 @@ contract Inbox is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable, EIP71
         }
 
         return _hashTypedDataV4(structHash);
+    }
+
+    /// @notice Pause the inbox, blocking all inbound message delivery.
+    function pause() external onlyOwner {
+        _pause();
+    }
+
+    /// @notice Unpause the inbox, resuming inbound message delivery.
+    function unpause() external onlyOwner {
+        _unpause();
     }
 
     /// @dev Authorize UUPS upgrades. Restricted to the contract owner.
