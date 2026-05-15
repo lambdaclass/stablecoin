@@ -10,8 +10,26 @@ import {BridgeBurner} from "src/bridge/BridgeBurner.sol";
 import {BridgeMinter} from "src/bridge/BridgeMinter.sol";
 
 /// @notice Deploys all bridge contracts directly (no CREATE2) for integration testing.
+/// @dev Production cross-chain routes are configured per-direction: the BridgeMinter on chain B
+/// accepts messages whose `srcChain` is chain A and whose sender is the BridgeBurner on chain A,
+/// and the BridgeBurner on chain A routes outbound messages to the BridgeMinter on chain B.
+/// The previous implementation passed `block.chainid` (the *local* chain) into both
+/// `setAllowedSender` and `setDstMinter`, producing a same-chain loop that can never be used
+/// because BridgeBurner.sendTo reverts when `dstChain == block.chainid`. The script now requires
+/// the counterpart chain ID so the route at least *describes* a valid bridge topology, even when
+/// the counterpart contract addresses are stubs supplied by the operator.
 contract DeployTestBridge is Script {
-    function run(address attestor, uint256 minterAllowance) public {
+    error CounterpartIsLocalChain(uint256 chainId);
+
+    function run(
+        address attestor,
+        uint256 minterAllowance,
+        uint256 counterpartChainId,
+        address counterpartBurner,
+        address counterpartMinter
+    ) public {
+        require(counterpartChainId != block.chainid, CounterpartIsLocalChain(block.chainid));
+
         address admin = msg.sender;
 
         vm.startBroadcast();
@@ -22,7 +40,17 @@ contract DeployTestBridge is Script {
         BridgeBurner bridgeBurner = _deployBurner(admin, address(stablecoin), address(outbox));
         BridgeMinter bridgeMinter = _deployMinter(admin, address(stablecoin), address(inbox));
 
-        _configure(stablecoin, inbox, bridgeBurner, bridgeMinter, attestor, minterAllowance);
+        _configure(
+            stablecoin,
+            inbox,
+            bridgeBurner,
+            bridgeMinter,
+            attestor,
+            minterAllowance,
+            counterpartChainId,
+            counterpartBurner,
+            counterpartMinter
+        );
 
         vm.stopBroadcast();
 
@@ -73,7 +101,10 @@ contract DeployTestBridge is Script {
         BridgeBurner bridgeBurner,
         BridgeMinter bridgeMinter,
         address attestor,
-        uint256 minterAllowance
+        uint256 minterAllowance,
+        uint256 counterpartChainId,
+        address counterpartBurner,
+        address counterpartMinter
     ) internal {
         stablecoin.grantRole(stablecoin.BURNER_ROLE(), address(bridgeBurner));
         stablecoin.addMinter(address(bridgeMinter), minterAllowance);
@@ -81,7 +112,9 @@ contract DeployTestBridge is Script {
         stablecoin.addMinter(msg.sender, minterAllowance);
         inbox.addAttestor(attestor);
         inbox.setThreshold(1);
-        bridgeMinter.setAllowedSender(block.chainid, address(bridgeBurner));
-        bridgeBurner.setDstMinter(block.chainid, address(bridgeMinter));
+        // The local BridgeMinter accepts messages from the counterpart chain's BridgeBurner;
+        // the local BridgeBurner routes outbound messages to the counterpart chain's BridgeMinter.
+        bridgeMinter.setAllowedSender(counterpartChainId, counterpartBurner);
+        bridgeBurner.setDstMinter(counterpartChainId, counterpartMinter);
     }
 }

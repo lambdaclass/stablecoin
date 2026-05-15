@@ -3,6 +3,10 @@ pragma solidity =0.8.30;
 
 import {Stablecoin} from "../Stablecoin.sol";
 
+/// @dev Illustrative V2 used to exercise the UUPS upgrade flow. `_maxSupply` is intentionally
+/// stored and exposed but NOT enforced by `_update`: this contract demonstrates appending
+/// storage and a reinitializer, not a supply-cap policy. Subclasses that want a real cap
+/// must override `_update` (or the internal hook) to revert when `totalSupply() > _maxSupply`.
 /// @custom:oz-upgrades-from Stablecoin
 contract StablecoinV2 is Stablecoin {
     // New state variable appended after existing Stablecoin storage (slot 4+)
