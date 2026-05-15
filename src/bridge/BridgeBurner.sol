@@ -67,10 +67,13 @@ contract BridgeBurner is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable
         emit OutboxSet(outbox_);
     }
 
-    /// @dev Reject zero address and any target that does not advertise `IOutbox`
-    /// via ERC-165. Catches reverts and non-introspectable contracts.
+    /// @dev Reject zero address, EOAs, and any target that does not advertise
+    /// `IOutbox` via ERC-165. The explicit `code.length` check routes EOAs through
+    /// `InvalidOutbox` rather than the lower-level "call to non-contract address"
+    /// revert solc emits for external calls into accounts with no code.
     function _validateOutbox(address outbox_) internal view {
         require(outbox_ != address(0), ZeroAddress());
+        require(outbox_.code.length > 0, InvalidOutbox(outbox_));
         try IERC165(outbox_).supportsInterface(type(IOutbox).interfaceId) returns (bool ok) {
             require(ok, InvalidOutbox(outbox_));
         } catch {
