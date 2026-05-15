@@ -746,22 +746,37 @@ contract StablecoinTest is Test {
         stablecoin.burnFrom(account, amount);
     }
 
-    function test_CannotRemoveMinterWhenPaused() public {
+    function test_RemoveMinterSucceedsWhenPaused() public {
         vm.prank(PAUSER);
         stablecoin.pause();
 
         vm.prank(ADMIN);
-        vm.expectRevert(ENFORCED_PAUSE_ERROR);
         stablecoin.removeMinter(MINTER);
+
+        assertFalse(stablecoin.hasRole(stablecoin.MINTER_ROLE(), MINTER));
+        assertEq(stablecoin.minterAllowance(MINTER), 0);
     }
 
-    function test_CannotModifyMinterAllowanceWhenPaused() public {
+    function test_CannotIncreaseMinterAllowanceWhenPaused() public {
         vm.prank(PAUSER);
         stablecoin.pause();
 
         vm.prank(ADMIN);
-        vm.expectRevert(ENFORCED_PAUSE_ERROR);
+        vm.expectRevert("Cannot increase allowance while paused");
         stablecoin.modifyMinterAllowance(MINTER, 5000);
+    }
+
+    function test_CanDecreaseMinterAllowanceWhenPaused() public {
+        uint256 oldAllowance = stablecoin.minterAllowance(MINTER);
+        uint256 newAllowance = oldAllowance / 2;
+
+        vm.prank(PAUSER);
+        stablecoin.pause();
+
+        vm.prank(ADMIN);
+        stablecoin.modifyMinterAllowance(MINTER, newAllowance);
+
+        assertEq(stablecoin.minterAllowance(MINTER), newAllowance);
     }
 
     // ============ Role Permission Tests ============
