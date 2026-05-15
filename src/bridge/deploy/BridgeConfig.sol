@@ -30,7 +30,6 @@ library BridgeConfig {
     error ThresholdZero();
     error ThresholdTooHigh(uint256 threshold, uint256 attestorCount);
     error MinterAllowanceZero();
-    error ZeroAttestor(uint256 index);
     error ZeroAllowedSender(uint256 index);
     error ZeroDstMinter(uint256 index);
 
@@ -76,10 +75,8 @@ library BridgeConfig {
         // Minter allowance
         require(config.minterAllowance > 0, MinterAllowanceZero());
 
-        // Zero-address checks on array entries
-        for (uint256 i = 0; i < config.attestors.length; i++) {
-            require(config.attestors[i] != address(0), ZeroAttestor(i));
-        }
+        // Zero-address checks on array entries. Attestors are checked by Inbox.addAttestor
+        // at configure-time, so they're not re-validated here.
         for (uint256 i = 0; i < config.allowedSenders.length; i++) {
             require(config.allowedSenders[i].sender != address(0), ZeroAllowedSender(i));
         }

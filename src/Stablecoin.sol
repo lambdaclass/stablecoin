@@ -116,7 +116,9 @@ contract Stablecoin is
     }
 
     /// @dev Mints `value` tokens to `to`, deducting from the caller's minter allowance.
-    function mint(address to, uint256 value) public onlyRole(MINTER_ROLE) whenNotPaused {
+    /// The pause check lives in `_update` (invoked by `_mint`); the public function does
+    /// not need its own `whenNotPaused` modifier.
+    function mint(address to, uint256 value) public onlyRole(MINTER_ROLE) {
         uint256 allowance = _minterAllowances[msg.sender];
         require(allowance >= value, "Value exceeds allowance");
         _minterAllowances[msg.sender] = allowance - value;
@@ -131,30 +133,34 @@ contract Stablecoin is
     }
 
     /// @dev Burns `value` tokens from the caller's balance. Restricted to BURNER_ROLE.
-    function burn(uint256 value) public override onlyRole(BURNER_ROLE) whenNotPaused {
+    /// Pause is enforced inside `_update` (invoked by `_burn`).
+    function burn(uint256 value) public override onlyRole(BURNER_ROLE) {
         _burn(_msgSender(), value);
     }
 
     /// @dev Burns `value` tokens from `account` using the caller's ERC20 allowance. Restricted to BURNER_ROLE.
-    function burnFrom(address account, uint256 value) public override onlyRole(BURNER_ROLE) whenNotPaused {
+    /// Pause is enforced inside `_update` (invoked by `_burn`).
+    function burnFrom(address account, uint256 value) public override onlyRole(BURNER_ROLE) {
         _spendAllowance(account, _msgSender(), value);
         _burn(account, value);
     }
 
     /// @dev Grants MINTER_ROLE and sets the minting allowance atomically.
     /// Uses _grantRole to bypass the external grantRole admin check (see initialize @dev note).
+    /// _grantRole returns false when the role was already held, so the pre-check via
+    /// hasRole is redundant.
     function addMinter(address newMinter, uint256 allowance) public onlyRole(ADMIN_ROLE) whenNotPaused {
-        require(!hasRole(MINTER_ROLE, newMinter), "Minter already exists");
+        require(_grantRole(MINTER_ROLE, newMinter), "Minter already exists");
         _minterAllowances[newMinter] = allowance;
-        _grantRole(MINTER_ROLE, newMinter);
         emit MinterAdded(newMinter, allowance);
     }
 
     /// @dev Revokes MINTER_ROLE and clears the minting allowance atomically.
+    /// _revokeRole returns false when the role was not held, so the pre-check via
+    /// hasRole is redundant.
     function removeMinter(address minter) public onlyRole(ADMIN_ROLE) whenNotPaused {
-        require(hasRole(MINTER_ROLE, minter), "Minter does not exist");
+        require(_revokeRole(MINTER_ROLE, minter), "Minter does not exist");
         delete _minterAllowances[minter];
-        _revokeRole(MINTER_ROLE, minter);
         emit MinterRemoved(minter);
     }
 
