@@ -93,6 +93,11 @@ contract Stablecoin is
         address pauser,
         address freezer
     ) public initializer {
+        require(admin != address(0), "ADMIN_ROLE is zero address");
+        require(burner != address(0), "BURNER_ROLE is zero address");
+        require(pauser != address(0), "PAUSER_ROLE is zero address");
+        require(freezer != address(0), "FREEZER_ROLE is zero address");
+
         __ERC20_init(name, symbol);
         __ERC20Burnable_init();
         __ERC20Pausable_init();

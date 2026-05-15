@@ -1046,6 +1046,42 @@ contract StablecoinTest is Test {
         assertFalse(stablecoin.frozen(account));
     }
 
+    function test_CannotInitializeWithZeroAdmin() public {
+        Stablecoin impl = new Stablecoin();
+        vm.expectRevert("ADMIN_ROLE is zero address");
+        new ERC1967Proxy(
+            address(impl),
+            abi.encodeCall(Stablecoin.initialize, ("Stablecoin", "STBL", 6, address(0), BURNER, PAUSER, FREEZER))
+        );
+    }
+
+    function test_CannotInitializeWithZeroBurner() public {
+        Stablecoin impl = new Stablecoin();
+        vm.expectRevert("BURNER_ROLE is zero address");
+        new ERC1967Proxy(
+            address(impl),
+            abi.encodeCall(Stablecoin.initialize, ("Stablecoin", "STBL", 6, ADMIN, address(0), PAUSER, FREEZER))
+        );
+    }
+
+    function test_CannotInitializeWithZeroPauser() public {
+        Stablecoin impl = new Stablecoin();
+        vm.expectRevert("PAUSER_ROLE is zero address");
+        new ERC1967Proxy(
+            address(impl),
+            abi.encodeCall(Stablecoin.initialize, ("Stablecoin", "STBL", 6, ADMIN, BURNER, address(0), FREEZER))
+        );
+    }
+
+    function test_CannotInitializeWithZeroFreezer() public {
+        Stablecoin impl = new Stablecoin();
+        vm.expectRevert("FREEZER_ROLE is zero address");
+        new ERC1967Proxy(
+            address(impl),
+            abi.encodeCall(Stablecoin.initialize, ("Stablecoin", "STBL", 6, ADMIN, BURNER, PAUSER, address(0)))
+        );
+    }
+
     function test_ImplementationCannotBeInitialized() public {
         // Deploy a new implementation directly (not through proxy)
         Stablecoin impl = new Stablecoin();
