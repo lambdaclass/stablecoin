@@ -11,6 +11,8 @@ import {BridgeMinter} from "src/bridge/BridgeMinter.sol";
 
 /// @notice Deploys all bridge contracts directly (no CREATE2) for integration testing.
 contract DeployTestBridge is Script {
+    uint8 internal constant DECIMALS = 6;
+
     function run(address attestor, uint256 minterAllowance) public {
         address admin = msg.sender;
 
@@ -36,7 +38,8 @@ contract DeployTestBridge is Script {
     function _deployStablecoin(address admin) internal returns (Stablecoin) {
         Stablecoin impl_ = new Stablecoin();
         ERC1967Proxy proxy = new ERC1967Proxy(
-            address(impl_), abi.encodeCall(Stablecoin.initialize, ("Stablecoin", "STBL", 6, admin, admin, admin, admin))
+            address(impl_),
+            abi.encodeCall(Stablecoin.initialize, ("Stablecoin", "STBL", DECIMALS, admin, admin, admin, admin))
         );
         return Stablecoin(address(proxy));
     }
