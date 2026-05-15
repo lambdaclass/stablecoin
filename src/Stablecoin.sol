@@ -26,6 +26,8 @@ import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/U
  *  - BURNER_ROLE: Can burn tokens from own balance or via allowance (burnFrom).
  *  - PAUSER_ROLE: Can pause/unpause all token operations.
  *  - FREEZER_ROLE: Can freeze/unfreeze individual accounts.
+ *
+ * @custom:security-contact TODO
  */
 contract Stablecoin is
     Initializable,
