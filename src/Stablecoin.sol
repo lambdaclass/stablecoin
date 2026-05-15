@@ -59,6 +59,11 @@ contract Stablecoin is
     event AccountFrozen(address indexed account);
     event AccountUnfrozen(address indexed account);
 
+    error ValueExceedsAllowance(uint256 requested, uint256 allowance);
+    error MinterAlreadyExists(address minter);
+    error MinterDoesNotExist(address minter);
+    error AccountIsFrozen(address account);
+
     modifier whenNotFrozen(address account) {
         _whenNotFrozen(account);
         _;
@@ -118,7 +123,7 @@ contract Stablecoin is
     /// @dev Mints `value` tokens to `to`, deducting from the caller's minter allowance.
     function mint(address to, uint256 value) public onlyRole(MINTER_ROLE) whenNotPaused {
         uint256 allowance = _minterAllowances[msg.sender];
-        require(allowance >= value, "Value exceeds allowance");
+        require(allowance >= value, ValueExceedsAllowance(value, allowance));
         _minterAllowances[msg.sender] = allowance - value;
         _mint(to, value);
     }
@@ -144,7 +149,7 @@ contract Stablecoin is
     /// @dev Grants MINTER_ROLE and sets the minting allowance atomically.
     /// Uses _grantRole to bypass the external grantRole admin check (see initialize @dev note).
     function addMinter(address newMinter, uint256 allowance) public onlyRole(ADMIN_ROLE) whenNotPaused {
-        require(!hasRole(MINTER_ROLE, newMinter), "Minter already exists");
+        require(!hasRole(MINTER_ROLE, newMinter), MinterAlreadyExists(newMinter));
         _minterAllowances[newMinter] = allowance;
         _grantRole(MINTER_ROLE, newMinter);
         emit MinterAdded(newMinter, allowance);
@@ -152,7 +157,7 @@ contract Stablecoin is
 
     /// @dev Revokes MINTER_ROLE and clears the minting allowance atomically.
     function removeMinter(address minter) public onlyRole(ADMIN_ROLE) whenNotPaused {
-        require(hasRole(MINTER_ROLE, minter), "Minter does not exist");
+        require(hasRole(MINTER_ROLE, minter), MinterDoesNotExist(minter));
         delete _minterAllowances[minter];
         _revokeRole(MINTER_ROLE, minter);
         emit MinterRemoved(minter);
@@ -160,7 +165,7 @@ contract Stablecoin is
 
     /// @dev Updates the minting allowance for an existing minter without changing their role.
     function modifyMinterAllowance(address minter, uint256 allowance) public onlyRole(ADMIN_ROLE) whenNotPaused {
-        require(hasRole(MINTER_ROLE, minter), "Minter does not exist");
+        require(hasRole(MINTER_ROLE, minter), MinterDoesNotExist(minter));
         uint256 oldAllowance = _minterAllowances[minter];
         _minterAllowances[minter] = allowance;
         emit MinterAllowanceChanged(minter, oldAllowance, allowance);
@@ -243,6 +248,6 @@ contract Stablecoin is
     function _authorizeUpgrade(address newImplementation) internal override onlyRole(ADMIN_ROLE) {}
 
     function _whenNotFrozen(address account) internal view {
-        require(!frozen[account], "Frozen account");
+        require(!frozen[account], AccountIsFrozen(account));
     }
 }

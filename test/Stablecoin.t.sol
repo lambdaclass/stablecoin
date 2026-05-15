@@ -16,7 +16,6 @@ contract StablecoinTest is Test {
     address public constant FREEZER = 0x15d34AAf54267DB7D7c367839AAf71A00a2C6A65;
 
     bytes public constant ENFORCED_PAUSE_ERROR = abi.encodeWithSignature("EnforcedPause()");
-    bytes public constant FREEZED_ACCOUNT_ERROR = "Frozen account";
 
     function setUp() public {
         vm.startPrank(ADMIN);
@@ -69,7 +68,7 @@ contract StablecoinTest is Test {
         stablecoin.addMinter(newMinter, amount);
 
         // Try to add the same minter again - should revert
-        vm.expectRevert("Minter already exists");
+        vm.expectPartialRevert(Stablecoin.MinterAlreadyExists.selector);
         stablecoin.addMinter(newMinter, amount);
         vm.stopPrank();
     }
@@ -149,7 +148,7 @@ contract StablecoinTest is Test {
         stablecoin.addMinter(newMinter, amount);
 
         vm.prank(newMinter);
-        vm.expectRevert("Value exceeds allowance");
+        vm.expectPartialRevert(Stablecoin.ValueExceedsAllowance.selector);
         stablecoin.mint(newMinter, amount + 1);
     }
 
@@ -355,7 +354,7 @@ contract StablecoinTest is Test {
         stablecoin.freeze(frozenAccount);
 
         vm.prank(MINTER);
-        vm.expectRevert(FREEZED_ACCOUNT_ERROR);
+        vm.expectPartialRevert(Stablecoin.AccountIsFrozen.selector);
         stablecoin.mint(frozenAccount, amount);
     }
 
@@ -372,7 +371,7 @@ contract StablecoinTest is Test {
         stablecoin.freeze(frozenAccount);
 
         vm.prank(frozenAccount);
-        vm.expectRevert(FREEZED_ACCOUNT_ERROR);
+        vm.expectPartialRevert(Stablecoin.AccountIsFrozen.selector);
         bool success = stablecoin.transfer(otherAccount, amount);
         success; // Silence unused variable warning (call reverts before this)
     }
@@ -390,7 +389,7 @@ contract StablecoinTest is Test {
         stablecoin.freeze(frozenAccount);
 
         vm.prank(otherAccount);
-        vm.expectRevert(FREEZED_ACCOUNT_ERROR);
+        vm.expectPartialRevert(Stablecoin.AccountIsFrozen.selector);
         bool success = stablecoin.transfer(frozenAccount, amount);
         success; // Silence unused variable warning (call reverts before this)
     }
@@ -413,7 +412,7 @@ contract StablecoinTest is Test {
         stablecoin.freeze(spender);
 
         vm.prank(spender);
-        vm.expectRevert(FREEZED_ACCOUNT_ERROR);
+        vm.expectPartialRevert(Stablecoin.AccountIsFrozen.selector);
         bool success = stablecoin.transferFrom(owner, receiver, amount);
         success; // Silence unused variable warning (call reverts before this)
     }
@@ -436,7 +435,7 @@ contract StablecoinTest is Test {
         stablecoin.freeze(owner);
 
         vm.prank(spender);
-        vm.expectRevert(FREEZED_ACCOUNT_ERROR);
+        vm.expectPartialRevert(Stablecoin.AccountIsFrozen.selector);
         bool success = stablecoin.transferFrom(owner, receiver, amount);
         success; // Silence unused variable warning (call reverts before this)
     }
@@ -459,7 +458,7 @@ contract StablecoinTest is Test {
         stablecoin.freeze(receiver);
 
         vm.prank(spender);
-        vm.expectRevert(FREEZED_ACCOUNT_ERROR);
+        vm.expectPartialRevert(Stablecoin.AccountIsFrozen.selector);
         bool success = stablecoin.transferFrom(owner, receiver, amount);
         success; // Silence unused variable warning (call reverts before this)
     }
@@ -541,14 +540,14 @@ contract StablecoinTest is Test {
     function test_CannotRemoveNonExistentMinter() public {
         address nonMinter = address(0x999);
         vm.prank(ADMIN);
-        vm.expectRevert("Minter does not exist");
+        vm.expectPartialRevert(Stablecoin.MinterDoesNotExist.selector);
         stablecoin.removeMinter(nonMinter);
     }
 
     function test_CannotModifyNonExistentMinterAllowance() public {
         address nonMinter = address(0x999);
         vm.prank(ADMIN);
-        vm.expectRevert("Minter does not exist");
+        vm.expectPartialRevert(Stablecoin.MinterDoesNotExist.selector);
         stablecoin.modifyMinterAllowance(nonMinter, 1000);
     }
 
@@ -663,7 +662,7 @@ contract StablecoinTest is Test {
         stablecoin.addMinter(testMinter, allowance);
 
         vm.prank(testMinter);
-        vm.expectRevert("Value exceeds allowance");
+        vm.expectPartialRevert(Stablecoin.ValueExceedsAllowance.selector);
         stablecoin.mint(address(0x201), mintAmount);
     }
 
@@ -705,7 +704,7 @@ contract StablecoinTest is Test {
 
         // Frozen minter cannot mint (msg.sender is checked in _update)
         vm.prank(MINTER);
-        vm.expectRevert(FREEZED_ACCOUNT_ERROR);
+        vm.expectPartialRevert(Stablecoin.AccountIsFrozen.selector);
         stablecoin.mint(recipient, amount);
     }
 
@@ -722,7 +721,7 @@ contract StablecoinTest is Test {
 
         // Frozen burner cannot burn (msg.sender is checked in _update)
         vm.prank(BURNER);
-        vm.expectRevert(FREEZED_ACCOUNT_ERROR);
+        vm.expectPartialRevert(Stablecoin.AccountIsFrozen.selector);
         stablecoin.burn(amount);
     }
 
@@ -742,7 +741,7 @@ contract StablecoinTest is Test {
 
         // Frozen burner cannot burnFrom (msg.sender is checked in _update)
         vm.prank(BURNER);
-        vm.expectRevert(FREEZED_ACCOUNT_ERROR);
+        vm.expectPartialRevert(Stablecoin.AccountIsFrozen.selector);
         stablecoin.burnFrom(account, amount);
     }
 
@@ -889,7 +888,7 @@ contract StablecoinTest is Test {
 
         // Burner cannot burn from frozen account
         vm.prank(BURNER);
-        vm.expectRevert(FREEZED_ACCOUNT_ERROR);
+        vm.expectPartialRevert(Stablecoin.AccountIsFrozen.selector);
         stablecoin.burnFrom(account, amount);
     }
 

@@ -21,6 +21,9 @@ library BridgeDeploy {
         BridgeMinter bridgeMinter;
     }
 
+    error Create2DeployFailed(bytes32 salt);
+    error Create2DeploymentEmpty(bytes32 salt, address deployed);
+
     /// @notice Deploy all bridge contracts using deterministic CREATE2 addresses.
     /// @param baseSalt Base salt from which per-contract salts are derived.
     /// @param owner Owner of all bridge contracts (can upgrade and configure).
@@ -88,7 +91,7 @@ library BridgeDeploy {
     function _deploy(bytes32 salt, bytes memory bytecode) private returns (address deployed) {
         deployed = Create2.computeAddress(salt, keccak256(bytecode), ARACHNID);
         (bool success,) = ARACHNID.call(abi.encodePacked(salt, bytecode));
-        require(success, "BridgeDeploy: CREATE2 failed");
-        require(deployed.code.length > 0, "BridgeDeploy: deployment produced no code");
+        require(success, Create2DeployFailed(salt));
+        require(deployed.code.length > 0, Create2DeploymentEmpty(salt, deployed));
     }
 }
