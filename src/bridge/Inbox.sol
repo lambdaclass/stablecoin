@@ -34,7 +34,7 @@ contract Inbox is
     /// @dev Uses uint256 instead of bool to skip the read-modify-write the
     /// compiler emits for sub-word types. See OZ ReentrancyGuard for rationale:
     /// https://github.com/OpenZeppelin/openzeppelin-contracts/blob/fcbae5394ae8ad52d8e580a3477db99814b9d565/contracts/utils/ReentrancyGuard.sol#L39-L43
-    mapping(bytes32 => uint256) public usedNonces;
+    mapping(bytes32 nonce => uint256 used) public usedNonces;
 
     event MessageDelivered(bytes32 indexed nonce, address indexed dstRecipient);
     event AttestorAdded(address indexed attestor);

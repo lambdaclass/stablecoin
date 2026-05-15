@@ -41,7 +41,7 @@ contract Stablecoin is
     bytes32 public constant MINTER_ROLE = keccak256("MINTER_ROLE");
     bytes32 public constant PAUSER_ROLE = keccak256("PAUSER_ROLE");
 
-    mapping(address => uint256) private _minterAllowances;
+    mapping(address minter => uint256 allowance) private _minterAllowances;
     // Frozen accounts
     mapping(address => bool) public frozen;
     // Token decimals
