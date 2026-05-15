@@ -117,9 +117,10 @@ contract Stablecoin is
 
     /// @dev Mints `value` tokens to `to`, deducting from the caller's minter allowance.
     function mint(address to, uint256 value) public onlyRole(MINTER_ROLE) whenNotPaused {
-        uint256 allowance = _minterAllowances[msg.sender];
+        address sender = _msgSender();
+        uint256 allowance = _minterAllowances[sender];
         require(allowance >= value, "Value exceeds allowance");
-        _minterAllowances[msg.sender] = allowance - value;
+        _minterAllowances[sender] = allowance - value;
         _mint(to, value);
     }
 
@@ -232,7 +233,7 @@ contract Stablecoin is
         internal
         override(ERC20Upgradeable, ERC20PausableUpgradeable)
         whenNotPaused
-        whenNotFrozen(msg.sender)
+        whenNotFrozen(_msgSender())
         whenNotFrozen(from)
         whenNotFrozen(to)
     {
