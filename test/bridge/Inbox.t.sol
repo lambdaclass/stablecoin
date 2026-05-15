@@ -282,7 +282,7 @@ contract InboxTest is BridgeTestBase {
         bytes4[6] memory stablecoin = [
             bytes4(keccak256("addMinter(address,uint256)")),
             bytes4(keccak256("removeMinter(address)")),
-            bytes4(keccak256("modifyMinterAllowance(address,uint256)")),
+            bytes4(keccak256("modifyMinterAllowance(address,int256)")),
             bytes4(keccak256("freeze(address)")),
             bytes4(keccak256("unfreeze(address)")),
             bytes4(keccak256("pause()"))

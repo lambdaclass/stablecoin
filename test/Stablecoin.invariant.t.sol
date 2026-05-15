@@ -112,11 +112,13 @@ contract StablecoinHandler is Test {
         stablecoin.unfreeze(target);
     }
 
-    function modifyMinterAllowance(uint256 newAllowance) external {
-        newAllowance = bound(newAllowance, 0, type(uint128).max);
+    function modifyMinterAllowance(int256 delta) external {
+        int256 limit = int256(uint256(type(uint128).max));
+        delta = bound(delta, -limit, limit);
         vm.prank(admin);
-        stablecoin.modifyMinterAllowance(minter, newAllowance);
-        // Track the maximum allowance ever granted by admin
+        stablecoin.modifyMinterAllowance(minter, delta);
+        // Track the maximum allowance ever granted by admin (post-state after delta).
+        uint256 newAllowance = stablecoin.minterAllowance(minter);
         if (newAllowance > ghostMaxAllowanceGranted) {
             ghostMaxAllowanceGranted = newAllowance;
         }
