@@ -12,15 +12,20 @@ import {TokenMintMessage} from "./TokenMintMessage.sol";
 /// @notice Application-level bridge exit point. Receives messages from the Inbox,
 /// validates the source chain and sender, then mints tokens to the recipient.
 contract BridgeMinter is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable, IMessageReceiver {
+    /// @notice Stablecoin to mint tokens on after a successful inbound message.
     Stablecoin public stablecoin;
+    /// @notice Inbox authorized to deliver messages to this minter (caller of handleMessage).
     address public inbox;
 
     /// @notice Mapping from source chain ID to the expected sender address (BridgeBurner on that chain).
     /// A source chain is allowed if and only if the mapped address is non-zero.
     mapping(uint256 => address) public allowedSenders;
 
+    /// @notice Emitted when the allowed BridgeBurner for `srcChain` is configured.
     event AllowedSenderSet(uint256 indexed srcChain, address sender);
+    /// @notice Emitted when the authorized Inbox is updated.
     event InboxSet(address inbox);
+    /// @notice Emitted when the Stablecoin reference is updated.
     event StablecoinSet(address stablecoin);
 
     error OnlyInbox();

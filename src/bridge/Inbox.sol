@@ -36,9 +36,13 @@ contract Inbox is
     /// https://github.com/OpenZeppelin/openzeppelin-contracts/blob/fcbae5394ae8ad52d8e580a3477db99814b9d565/contracts/utils/ReentrancyGuard.sol#L39-L43
     mapping(bytes32 => uint256) public usedNonces;
 
+    /// @notice Emitted on every successful `recvMessage` delivery.
     event MessageDelivered(bytes32 indexed nonce, address indexed dstRecipient);
+    /// @notice Emitted when an address is added to the attestor set.
     event AttestorAdded(address indexed attestor);
+    /// @notice Emitted when an address is removed from the attestor set.
     event AttestorRemoved(address indexed attestor);
+    /// @notice Emitted when the signature threshold is updated.
     event ThresholdSet(uint256 threshold);
 
     error InvalidSignatureCount();

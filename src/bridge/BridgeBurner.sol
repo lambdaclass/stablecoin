@@ -13,14 +13,19 @@ import {TokenMintMessage} from "./TokenMintMessage.sol";
 /// @notice Application-level bridge entry point. Burns tokens from the user via burnFrom,
 /// then sends a message through the Outbox for the destination chain's BridgeMinter.
 contract BridgeBurner is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable, IBridgeBurner {
+    /// @notice Stablecoin to burn tokens from on `sendTo`.
     Stablecoin public stablecoin;
+    /// @notice Outbox that dispatches the cross-chain bridge message.
     IOutbox public outbox;
 
     /// @notice Per-destination-chain minter address (the BridgeMinter on that chain).
     mapping(uint256 => address) public dstMinters;
 
+    /// @notice Emitted when the destination minter address for `dstChain` is configured.
     event DstMinterSet(uint256 indexed dstChain, address minter);
+    /// @notice Emitted when the Outbox reference is updated.
     event OutboxSet(address outbox);
+    /// @notice Emitted when the Stablecoin reference is updated.
     event StablecoinSet(address stablecoin);
 
     error DstMinterNotSet(uint256 dstChain);
