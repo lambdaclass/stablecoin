@@ -116,7 +116,9 @@ contract Stablecoin is
     }
 
     /// @dev Mints `value` tokens to `to`, deducting from the caller's minter allowance.
-    function mint(address to, uint256 value) public onlyRole(MINTER_ROLE) whenNotPaused {
+    /// Marked `virtual` so subclasses (e.g. a future StablecoinV2) can override to layer
+    /// additional invariants without abandoning the inheritance-based upgrade pattern.
+    function mint(address to, uint256 value) public virtual onlyRole(MINTER_ROLE) whenNotPaused {
         uint256 allowance = _minterAllowances[msg.sender];
         require(allowance >= value, "Value exceeds allowance");
         _minterAllowances[msg.sender] = allowance - value;
@@ -228,8 +230,11 @@ contract Stablecoin is
      * `burn`, and `burnFrom`. As a result, any constraints enforced here
      * (whenNotPaused, whenNotFrozen) also apply to all of those operations.
      */
+    /// @dev Marked `virtual` so subclasses can override to add invariants (supply cap,
+    /// blacklist policy, etc.) that should apply to every token movement.
     function _update(address from, address to, uint256 value)
         internal
+        virtual
         override(ERC20Upgradeable, ERC20PausableUpgradeable)
         whenNotPaused
         whenNotFrozen(msg.sender)
