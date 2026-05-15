@@ -239,6 +239,18 @@ contract Stablecoin is
         super._update(from, to, value);
     }
 
+    /// @dev Block allowance grants while paused. `_update` already blocks token movement,
+    /// but `approve` and `_spendAllowance` do not route through `_update`, so without
+    /// this override `approve()` (and the allowance bookkeeping inside `transferFrom` /
+    /// `burnFrom`) could still mutate state during a pause.
+    function _approve(address owner, address spender, uint256 value, bool emitEvent)
+        internal
+        override
+        whenNotPaused
+    {
+        super._approve(owner, spender, value, emitEvent);
+    }
+
     /// @dev UUPS upgrade authorization — only ADMIN_ROLE can upgrade the implementation.
     function _authorizeUpgrade(address newImplementation) internal override onlyRole(ADMIN_ROLE) {}
 
