@@ -172,7 +172,7 @@ contract Stablecoin is
     function getAllMinters() public view returns (MinterInfo[] memory) {
         address[] memory members = getRoleMembers(MINTER_ROLE);
         MinterInfo[] memory result = new MinterInfo[](members.length);
-        for (uint256 i = 0; i < members.length; i++) {
+        for (uint256 i = 0; i < members.length; ++i) {
             result[i] = MinterInfo({minter: members[i], allowance: _minterAllowances[members[i]]});
         }
         return result;

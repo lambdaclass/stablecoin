@@ -168,7 +168,7 @@ contract Inbox is
         bytes32 digest = _hashMessage(message);
 
         address prevSigner = address(0);
-        for (uint256 i = 0; i < sigCount; i++) {
+        for (uint256 i = 0; i < sigCount; ++i) {
             uint256 offset = i * 65;
             address signer = ECDSA.recoverCalldata(digest, signatures[offset:offset + 65]);
 
