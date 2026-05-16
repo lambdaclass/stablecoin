@@ -1,5 +1,13 @@
 # Bridge deployment configuration (example for chain A)
 # Usage: forge script script/DeployBridge.s.sol --sig "run(string)" bridge-config.example.toml
+#
+# NOTE: BridgeBurner and BridgeMinter proxy addresses are now deterministic across
+# every EVM chain that uses the same `salt` (M-02 fix). The `allowed_senders` and
+# `dst_minters` sections below MUST reference the *counterpart* chain's BridgeBurner
+# and BridgeMinter addresses — and because the proxies are deterministic, the
+# counterpart addresses are identical to the local ones. The chain IDs must of
+# course refer to chains *other than the local one*; BridgeBurner.sendTo reverts
+# on dstChain == block.chainid.
 
 [bridge]
 # Address of the pre-deployed stablecoin proxy on this chain

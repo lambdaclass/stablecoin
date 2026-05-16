@@ -28,6 +28,7 @@ contract BridgeBurner is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable
     error ZeroRecipient();
     error ZeroAmount();
     error SameChain();
+    error StablecoinNotSet();
 
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
@@ -35,14 +36,17 @@ contract BridgeBurner is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable
     }
 
     /// @notice Initialize the BridgeBurner proxy.
+    /// @dev The stablecoin address is intentionally NOT a parameter here: encoding a
+    /// per-chain stablecoin address into the proxy creation bytecode would make the
+    /// BridgeBurner's CREATE2 address chain-dependent, breaking the deterministic
+    /// "same address across every EVM chain" invariant that BridgeDeploy provides.
+    /// The owner MUST call `setStablecoin` immediately after deployment; until then
+    /// `sendTo` reverts with `StablecoinNotSet`.
     /// @param owner_ Address that will own the contract (can configure and upgrade).
-    /// @param stablecoin_ Address of the stablecoin contract to burn tokens from.
     /// @param outbox_ Address of the Outbox contract used to send cross-chain messages.
-    function initialize(address owner_, address stablecoin_, address outbox_) public initializer {
-        require(stablecoin_ != address(0), ZeroAddress());
+    function initialize(address owner_, address outbox_) public initializer {
         require(outbox_ != address(0), ZeroAddress());
         __Ownable_init(owner_);
-        stablecoin = Stablecoin(stablecoin_);
         outbox = IOutbox(outbox_);
     }
 
@@ -70,6 +74,7 @@ contract BridgeBurner is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable
 
     /// @inheritdoc IBridgeBurner
     function sendTo(uint256 dstChain, address recipient, uint256 amount) external {
+        require(address(stablecoin) != address(0), StablecoinNotSet());
         require(dstChain != block.chainid, SameChain());
         require(recipient != address(0), ZeroRecipient());
         require(amount > 0, ZeroAmount());

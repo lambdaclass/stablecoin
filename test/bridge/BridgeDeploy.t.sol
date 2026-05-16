@@ -3,6 +3,11 @@ pragma solidity =0.8.30;
 
 import {BridgeTestBase} from "./BridgeTestBase.sol";
 import {BridgeConfig} from "../../src/bridge/deploy/BridgeConfig.sol";
+import {BridgeDeploy} from "../../src/bridge/deploy/BridgeDeploy.sol";
+import {Stablecoin} from "../../src/Stablecoin.sol";
+import {
+    ERC1967Proxy
+} from "lib/openzeppelin-contracts-upgradeable/lib/openzeppelin-contracts/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 
 contract BridgeDeployTest is BridgeTestBase {
     function test_DeployProducesInitializedContracts() public view {
@@ -66,5 +71,47 @@ contract BridgeDeployTest is BridgeTestBase {
 
         // Verify dst minters
         assertEq(bridge.bridgeBurner.dstMinters(42), address(0xBBBB));
+    }
+
+    // ─── Deterministic address invariant (M-02 / #2) ─────────────────
+
+    function test_BridgeBurnerMinterAddressesIndependentOfStablecoin() public {
+        // The base bridge in setUp() was deployed via BridgeDeploy.deployAll, which
+        // (after the M-02 fix) no longer encodes the stablecoin address into the
+        // BridgeBurner / BridgeMinter proxy creation bytecode. The proxies' CREATE2
+        // addresses are therefore a pure function of (Arachnid, salt, owner, outbox/inbox)
+        // and do NOT depend on which stablecoin is later wired in.
+        //
+        // Demonstration: swap to a freshly-deployed alternate stablecoin via
+        // setStablecoin and verify the proxy addresses are unchanged.
+        address baseBurner = address(bridge.bridgeBurner);
+        address baseMinter = address(bridge.bridgeMinter);
+
+        vm.startPrank(ADMIN);
+        Stablecoin altImpl = new Stablecoin();
+        ERC1967Proxy altProxy = new ERC1967Proxy(
+            address(altImpl),
+            abi.encodeCall(Stablecoin.initialize, ("AltStablecoin", "ALT", 6, ADMIN, BURNER, PAUSER, FREEZER))
+        );
+        Stablecoin altStablecoin = Stablecoin(address(altProxy));
+
+        bridge.bridgeBurner.setStablecoin(address(altStablecoin));
+        bridge.bridgeMinter.setStablecoin(address(altStablecoin));
+        vm.stopPrank();
+
+        // Proxy addresses are unchanged; only the in-storage stablecoin reference moved.
+        assertEq(address(bridge.bridgeBurner), baseBurner);
+        assertEq(address(bridge.bridgeMinter), baseMinter);
+        assertEq(address(bridge.bridgeBurner.stablecoin()), address(altStablecoin));
+        assertEq(address(bridge.bridgeMinter.stablecoin()), address(altStablecoin));
+    }
+
+    function test_DifferentSaltsYieldDifferentAddresses() public {
+        // Sanity: salt actually matters, so the determinism above is non-vacuous.
+        BridgeDeploy.Contracts memory other = BridgeDeploy.deployAll(bytes32(uint256(uint256(BASE_SALT) + 1)), ADMIN);
+        assertTrue(address(other.bridgeBurner) != address(bridge.bridgeBurner));
+        assertTrue(address(other.bridgeMinter) != address(bridge.bridgeMinter));
+        assertTrue(address(other.outbox) != address(bridge.outbox));
+        assertTrue(address(other.inbox) != address(bridge.inbox));
     }
 }

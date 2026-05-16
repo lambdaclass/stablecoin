@@ -26,6 +26,7 @@ contract BridgeMinter is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable
     error OnlyInbox();
     error DisallowedSender(uint256 srcChain, address srcSender);
     error ZeroAddress();
+    error StablecoinNotSet();
 
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
@@ -33,14 +34,17 @@ contract BridgeMinter is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable
     }
 
     /// @notice Initialize the BridgeMinter proxy.
+    /// @dev The stablecoin address is intentionally NOT a parameter here: encoding a
+    /// per-chain stablecoin address into the proxy creation bytecode would make the
+    /// BridgeMinter's CREATE2 address chain-dependent, breaking the deterministic
+    /// "same address across every EVM chain" invariant that BridgeDeploy provides.
+    /// The owner MUST call `setStablecoin` immediately after deployment; until then
+    /// `handleMessage` reverts with `StablecoinNotSet`.
     /// @param owner_ Address that will own the contract (can configure and upgrade).
-    /// @param stablecoin_ Address of the stablecoin contract to mint tokens on.
     /// @param inbox_ Address of the Inbox contract authorized to deliver messages.
-    function initialize(address owner_, address stablecoin_, address inbox_) public initializer {
-        require(stablecoin_ != address(0), ZeroAddress());
+    function initialize(address owner_, address inbox_) public initializer {
         require(inbox_ != address(0), ZeroAddress());
         __Ownable_init(owner_);
-        stablecoin = Stablecoin(stablecoin_);
         inbox = inbox_;
     }
 
@@ -69,6 +73,7 @@ contract BridgeMinter is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable
     /// @inheritdoc IMessageReceiver
     function handleMessage(uint256 srcChain, address srcSender, bytes calldata payload) external {
         require(msg.sender == inbox, OnlyInbox());
+        require(address(stablecoin) != address(0), StablecoinNotSet());
         address allowed = allowedSenders[srcChain];
         require(allowed != address(0) && allowed == srcSender, DisallowedSender(srcChain, srcSender));
 

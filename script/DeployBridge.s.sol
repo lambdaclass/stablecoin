@@ -23,7 +23,7 @@ contract DeployBridge is Script {
 
         vm.startBroadcast();
 
-        BridgeDeploy.Contracts memory contracts = BridgeDeploy.deployAll(baseSalt, owner, stablecoinAddr);
+        BridgeDeploy.Contracts memory contracts = BridgeDeploy.deployAll(baseSalt, owner);
         BridgeConfig.configure(Stablecoin(stablecoinAddr), contracts, config);
 
         vm.stopBroadcast();
