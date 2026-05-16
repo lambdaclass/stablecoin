@@ -20,7 +20,13 @@ import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/U
  * @dev Upgradeable ERC20 stablecoin with role-based access control.
  *
  * Roles:
- *  - ADMIN_ROLE: Manages minters and their allowances, authorizes upgrades.
+ *  - ADMIN_ROLE: Manages minters and their allowances, authorizes upgrades, and
+ *    administers itself (can grant or revoke ADMIN_ROLE on other accounts).
+ *    For production deployments, the holder of ADMIN_ROLE MUST be an OpenZeppelin
+ *    `TimelockController` (or equivalent delayed-execution governance contract);
+ *    direct EOAs or unsynchronized multisigs SHOULD NOT hold ADMIN_ROLE because the
+ *    role is self-administering and any rotation, grant, or revocation runs
+ *    immediately.
  *  - MINTER_ROLE: Can mint tokens up to an individual allowance. Managed exclusively
  *    through addMinter/removeMinter to keep role and allowance state in sync.
  *  - BURNER_ROLE: Can burn tokens from own balance or via allowance (burnFrom).
@@ -59,6 +65,11 @@ contract Stablecoin is
     event AccountFrozen(address indexed account);
     event AccountUnfrozen(address indexed account);
 
+    /// @dev Reverts when a revoke / renounce of ADMIN_ROLE would leave the contract
+    /// with zero admins. Without at least one admin, minter management and UUPS
+    /// upgrades become permanently unreachable on-chain.
+    error LastAdminCannotBeRemoved();
+
     modifier whenNotFrozen(address account) {
         _whenNotFrozen(account);
         _;
@@ -83,6 +94,15 @@ contract Stablecoin is
      * making grantRole/revokeRole for MINTER_ROLE always revert. The only way to
      * manage minters is through addMinter/removeMinter, which atomically update both
      * the role and the allowance, preventing state divergence between the two.
+     *
+     * @dev ADMIN_ROLE is configured as its own admin so that an existing admin can
+     * rotate the role on-chain (grant ADMIN_ROLE to a new account, revoke it from
+     * an old one). Because the role is self-administering and grants/revocations
+     * are immediate, the recommended `admin` value at initialize-time is an
+     * OpenZeppelin `TimelockController` deployed via `script/DeployTimelock.s.sol`.
+     * Routing rotations through a timelock gives the team a delay window to detect
+     * and cancel a hostile rotation before it executes. Revoking or renouncing the
+     * last remaining admin reverts (see `_revokeRole`).
      */
     function initialize(
         string memory name,
@@ -102,6 +122,7 @@ contract Stablecoin is
         _decimals = decimals_;
 
         // MINTER_ROLE intentionally not listed here — see @dev note above.
+        _setRoleAdmin(ADMIN_ROLE, ADMIN_ROLE);
         _setRoleAdmin(BURNER_ROLE, ADMIN_ROLE);
         _setRoleAdmin(PAUSER_ROLE, ADMIN_ROLE);
         _setRoleAdmin(FREEZER_ROLE, ADMIN_ROLE);
@@ -244,5 +265,19 @@ contract Stablecoin is
 
     function _whenNotFrozen(address account) internal view {
         require(!frozen[account], "Frozen account");
+    }
+
+    /// @dev Centralized revoke hook for both `revokeRole` and `renounceRole`.
+    /// Refuses to remove the last remaining holder of ADMIN_ROLE, since ADMIN_ROLE
+    /// is its own admin (a zero-admin state is unrecoverable on-chain).
+    function _revokeRole(bytes32 role, address account)
+        internal
+        override(AccessControlEnumerableUpgradeable)
+        returns (bool)
+    {
+        if (role == ADMIN_ROLE && hasRole(ADMIN_ROLE, account) && getRoleMemberCount(ADMIN_ROLE) == 1) {
+            revert LastAdminCannotBeRemoved();
+        }
+        return super._revokeRole(role, account);
     }
 }

@@ -6,6 +6,7 @@ import {Stablecoin} from "../src/Stablecoin.sol";
 import {
     ERC1967Proxy
 } from "lib/openzeppelin-contracts-upgradeable/lib/openzeppelin-contracts/contracts/proxy/ERC1967/ERC1967Proxy.sol";
+import {TimelockController} from "@openzeppelin/contracts/governance/TimelockController.sol";
 
 contract StablecoinTest is Test {
     Stablecoin public stablecoin;
@@ -480,6 +481,146 @@ contract StablecoinTest is Test {
         emit Stablecoin.AccountUnfrozen(account);
         stablecoin.unfreeze(account);
         assertFalse(stablecoin.frozen(account));
+    }
+
+    // ============ ADMIN_ROLE Rotation Tests (M-01) ============
+
+    function test_AdminCanGrantAdminRole() public {
+        bytes32 adminRole = stablecoin.ADMIN_ROLE();
+        address newAdmin = address(0xAD1);
+
+        vm.prank(ADMIN);
+        stablecoin.grantRole(adminRole, newAdmin);
+
+        assertTrue(stablecoin.hasRole(adminRole, newAdmin));
+        assertTrue(stablecoin.hasRole(adminRole, ADMIN));
+        assertEq(stablecoin.getRoleMemberCount(adminRole), 2);
+    }
+
+    function test_AdminCanRevokeOtherAdmin() public {
+        bytes32 adminRole = stablecoin.ADMIN_ROLE();
+        address otherAdmin = address(0xAD1);
+
+        vm.startPrank(ADMIN);
+        stablecoin.grantRole(adminRole, otherAdmin);
+        assertEq(stablecoin.getRoleMemberCount(adminRole), 2);
+
+        stablecoin.revokeRole(adminRole, otherAdmin);
+        vm.stopPrank();
+
+        assertFalse(stablecoin.hasRole(adminRole, otherAdmin));
+        assertTrue(stablecoin.hasRole(adminRole, ADMIN));
+        assertEq(stablecoin.getRoleMemberCount(adminRole), 1);
+    }
+
+    function test_CannotRevokeLastAdmin() public {
+        bytes32 adminRole = stablecoin.ADMIN_ROLE();
+
+        // Only the original ADMIN holds ADMIN_ROLE; revoking it would leave zero admins.
+        vm.prank(ADMIN);
+        vm.expectRevert(Stablecoin.LastAdminCannotBeRemoved.selector);
+        stablecoin.revokeRole(adminRole, ADMIN);
+
+        assertTrue(stablecoin.hasRole(adminRole, ADMIN));
+    }
+
+    function test_CannotRenounceLastAdmin() public {
+        bytes32 adminRole = stablecoin.ADMIN_ROLE();
+
+        vm.prank(ADMIN);
+        vm.expectRevert(Stablecoin.LastAdminCannotBeRemoved.selector);
+        stablecoin.renounceRole(adminRole, ADMIN);
+
+        assertTrue(stablecoin.hasRole(adminRole, ADMIN));
+    }
+
+    function test_CanRenounceAdminWhenMultipleAdminsExist() public {
+        bytes32 adminRole = stablecoin.ADMIN_ROLE();
+        address otherAdmin = address(0xAD1);
+
+        vm.startPrank(ADMIN);
+        stablecoin.grantRole(adminRole, otherAdmin);
+        // The original ADMIN can now safely renounce because otherAdmin remains.
+        stablecoin.renounceRole(adminRole, ADMIN);
+        vm.stopPrank();
+
+        assertFalse(stablecoin.hasRole(adminRole, ADMIN));
+        assertTrue(stablecoin.hasRole(adminRole, otherAdmin));
+        assertEq(stablecoin.getRoleMemberCount(adminRole), 1);
+    }
+
+    function test_NonAdminCannotGrantAdminRole() public {
+        bytes32 adminRole = stablecoin.ADMIN_ROLE();
+        address nonAdmin = address(0xBADD);
+        bytes memory expectedError =
+            abi.encodeWithSignature("AccessControlUnauthorizedAccount(address,bytes32)", nonAdmin, adminRole);
+
+        vm.prank(nonAdmin);
+        vm.expectRevert(expectedError);
+        stablecoin.grantRole(adminRole, address(0xAD1));
+    }
+
+    function test_AdminRotationFullCycle() public {
+        bytes32 adminRole = stablecoin.ADMIN_ROLE();
+        address newAdmin = address(0xAD1);
+
+        // 1. New admin is granted; 2. Old admin renounces.
+        vm.startPrank(ADMIN);
+        stablecoin.grantRole(adminRole, newAdmin);
+        stablecoin.renounceRole(adminRole, ADMIN);
+        vm.stopPrank();
+
+        // 3. The new admin can now exercise admin operations.
+        address newMinter = address(0xBEEF);
+        vm.prank(newAdmin);
+        stablecoin.addMinter(newMinter, 100);
+        assertTrue(stablecoin.hasRole(stablecoin.MINTER_ROLE(), newMinter));
+
+        // 4. The old admin can no longer.
+        bytes memory expectedError =
+            abi.encodeWithSignature("AccessControlUnauthorizedAccount(address,bytes32)", ADMIN, adminRole);
+        vm.prank(ADMIN);
+        vm.expectRevert(expectedError);
+        stablecoin.addMinter(address(0xCAFE), 100);
+    }
+
+    function test_TimelockControllerAsAdmin() public {
+        bytes32 adminRole = stablecoin.ADMIN_ROLE();
+
+        // Deploy a TimelockController with the ADMIN address as the sole proposer
+        // and open execution (anyone can execute matured operations).
+        uint256 delay = 1 days;
+        address[] memory proposers = new address[](1);
+        proposers[0] = ADMIN;
+        address[] memory executors = new address[](1);
+        executors[0] = address(0); // open execution
+        TimelockController timelock = new TimelockController(delay, proposers, executors, address(0));
+
+        // Hand ADMIN_ROLE over to the timelock and remove the EOA admin.
+        vm.startPrank(ADMIN);
+        stablecoin.grantRole(adminRole, address(timelock));
+        stablecoin.renounceRole(adminRole, ADMIN);
+        vm.stopPrank();
+
+        assertEq(stablecoin.getRoleMemberCount(adminRole), 1);
+        assertTrue(stablecoin.hasRole(adminRole, address(timelock)));
+
+        // From now on, any admin action requires going through the timelock.
+        address newMinter = address(0xBEEF);
+        bytes memory callData = abi.encodeCall(stablecoin.addMinter, (newMinter, 1000));
+        bytes32 salt = bytes32(uint256(1));
+
+        vm.prank(ADMIN);
+        timelock.schedule(address(stablecoin), 0, callData, bytes32(0), salt, delay);
+
+        // Before the delay matures, execution reverts.
+        vm.expectRevert();
+        timelock.execute(address(stablecoin), 0, callData, bytes32(0), salt);
+
+        // After the delay, execution succeeds and the minter is added.
+        vm.warp(block.timestamp + delay + 1);
+        timelock.execute(address(stablecoin), 0, callData, bytes32(0), salt);
+        assertTrue(stablecoin.hasRole(stablecoin.MINTER_ROLE(), newMinter));
     }
 
     function test_NonAdminCannotUpgrade() public {
