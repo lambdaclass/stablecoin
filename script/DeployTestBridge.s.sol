@@ -55,8 +55,7 @@ contract DeployTestBridge is Script {
 
     function _deployBurner(address admin, address stablecoin, address outbox) internal returns (BridgeBurner) {
         BridgeBurner impl_ = new BridgeBurner();
-        ERC1967Proxy proxy =
-            new ERC1967Proxy(address(impl_), abi.encodeCall(BridgeBurner.initialize, (admin, outbox)));
+        ERC1967Proxy proxy = new ERC1967Proxy(address(impl_), abi.encodeCall(BridgeBurner.initialize, (admin, outbox)));
         BridgeBurner burner = BridgeBurner(address(proxy));
         burner.setStablecoin(stablecoin);
         return burner;
@@ -64,8 +63,7 @@ contract DeployTestBridge is Script {
 
     function _deployMinter(address admin, address stablecoin, address inbox) internal returns (BridgeMinter) {
         BridgeMinter impl_ = new BridgeMinter();
-        ERC1967Proxy proxy =
-            new ERC1967Proxy(address(impl_), abi.encodeCall(BridgeMinter.initialize, (admin, inbox)));
+        ERC1967Proxy proxy = new ERC1967Proxy(address(impl_), abi.encodeCall(BridgeMinter.initialize, (admin, inbox)));
         BridgeMinter minter = BridgeMinter(address(proxy));
         minter.setStablecoin(stablecoin);
         return minter;

@@ -125,8 +125,7 @@ contract BridgeDeployTest is BridgeTestBase {
 
     function test_SendToRevertsWhenStablecoinNotSet() public {
         // Fresh deploy with no setStablecoin — stablecoin slot is still address(0).
-        BridgeDeploy.Contracts memory fresh =
-            BridgeDeploy.deployAll(bytes32(uint256(uint256(BASE_SALT) + 100)), ADMIN);
+        BridgeDeploy.Contracts memory fresh = BridgeDeploy.deployAll(bytes32(uint256(uint256(BASE_SALT) + 100)), ADMIN);
 
         vm.expectRevert(BridgeBurner.StablecoinNotSet.selector);
         fresh.bridgeBurner.sendTo(block.chainid + 1, address(0xBEEF), 1);
@@ -134,8 +133,7 @@ contract BridgeDeployTest is BridgeTestBase {
 
     function test_HandleMessageRevertsWhenStablecoinNotSet() public {
         // Fresh deploy with no setStablecoin — stablecoin slot is still address(0).
-        BridgeDeploy.Contracts memory fresh =
-            BridgeDeploy.deployAll(bytes32(uint256(uint256(BASE_SALT) + 101)), ADMIN);
+        BridgeDeploy.Contracts memory fresh = BridgeDeploy.deployAll(bytes32(uint256(uint256(BASE_SALT) + 101)), ADMIN);
 
         // Spoof a call from the Inbox so the OnlyInbox check passes and we exercise
         // the StablecoinNotSet guard specifically. The handler reverts BEFORE

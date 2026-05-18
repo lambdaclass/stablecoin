@@ -72,17 +72,15 @@ contract FormalTestBase is Test {
 
         // Deploy BridgeBurner (stablecoin wired post-deploy; see BridgeDeploy dev note)
         BridgeBurner burnerImpl = new BridgeBurner();
-        ERC1967Proxy burnerProxy = new ERC1967Proxy(
-            address(burnerImpl), abi.encodeCall(BridgeBurner.initialize, (ADMIN, address(outbox)))
-        );
+        ERC1967Proxy burnerProxy =
+            new ERC1967Proxy(address(burnerImpl), abi.encodeCall(BridgeBurner.initialize, (ADMIN, address(outbox))));
         bridgeBurner = BridgeBurner(address(burnerProxy));
         bridgeBurner.setStablecoin(address(stablecoin));
 
         // Deploy BridgeMinter
         BridgeMinter minterImpl = new BridgeMinter();
-        ERC1967Proxy minterProxy = new ERC1967Proxy(
-            address(minterImpl), abi.encodeCall(BridgeMinter.initialize, (ADMIN, address(inbox)))
-        );
+        ERC1967Proxy minterProxy =
+            new ERC1967Proxy(address(minterImpl), abi.encodeCall(BridgeMinter.initialize, (ADMIN, address(inbox))));
         bridgeMinter = BridgeMinter(address(minterProxy));
         bridgeMinter.setStablecoin(address(stablecoin));
 
