@@ -2,39 +2,40 @@
 pragma solidity =0.8.30;
 
 import {Script, console} from "forge-std/Script.sol";
-import {TimelockController} from "@openzeppelin/contracts/governance/TimelockController.sol";
+import {Stablecoin} from "../src/Stablecoin.sol";
+import {StablecoinTimelock} from "../src/StablecoinTimelock.sol";
 
-/// @notice Deploys an OpenZeppelin TimelockController suitable for holding
-/// `ADMIN_ROLE` on the Stablecoin contract. Any ADMIN_ROLE grant or revocation
-/// (including rotation to a new TimelockController) must then be proposed,
-/// wait `minDelay` seconds, and be executed, giving the team a window to
-/// detect and cancel a hostile rotation before it lands on-chain.
+/// @notice Deploys a `StablecoinTimelock` suitable for holding `ADMIN_ROLE` on
+/// the given Stablecoin proxy. The deployed timelock has `address(0)` as its
+/// own admin so it administers itself via timelocked operations (standard OZ
+/// pattern). It is bound at construction to a single Stablecoin and exposes
+/// typed `schedule*` helpers for every ADMIN_ROLE-gated operation.
 ///
 /// `proposers` are the addresses (typically the team multisig) that can
 /// schedule operations; `executors` are the addresses that can execute a
 /// matured operation (use `address(0)` in `executors` to allow anyone — open
 /// execution removes the need for a privileged executor keychain).
 ///
-/// The TimelockController's own admin is left as `address(0)` so that the
-/// timelock administers itself via timelocked operations. This matches the
-/// recommended OpenZeppelin pattern for governance contracts.
-///
 /// Usage:
 ///   forge script script/DeployTimelock.s.sol \
 ///       --broadcast --private-key $DEPLOYER_KEY --rpc-url $RPC_URL \
-///       --sig 'run(uint256,address[],address[])' \
-///       $MIN_DELAY_SECONDS $PROPOSERS_ARRAY $EXECUTORS_ARRAY
+///       --sig 'run(address,uint256,address[],address[])' \
+///       $STABLECOIN $MIN_DELAY_SECONDS $PROPOSERS_ARRAY $EXECUTORS_ARRAY
 ///
-/// The deployed address can then be passed as `admin` to DeployStablecoin.s.sol.
+/// The deployed timelock address can then be passed as `admin` to
+/// DeployStablecoin.s.sol (fresh stablecoin), or granted ADMIN_ROLE from the
+/// current admin (already-deployed stablecoin).
 contract DeployTimelock is Script {
-    function run(uint256 minDelay, address[] memory proposers, address[] memory executors) public {
+    function run(address stablecoin, uint256 minDelay, address[] memory proposers, address[] memory executors) public {
+        require(stablecoin != address(0), "DeployTimelock: stablecoin == address(0)");
+
         vm.startBroadcast();
-        // admin = address(0) means the timelock is its own admin; rotations of
-        // the proposer/executor sets must be timelocked.
-        TimelockController timelock = new TimelockController(minDelay, proposers, executors, address(0));
+        StablecoinTimelock timelock =
+            new StablecoinTimelock(Stablecoin(stablecoin), minDelay, proposers, executors, address(0));
         vm.stopBroadcast();
 
-        console.log("TimelockController deployed at:", address(timelock));
+        console.log("StablecoinTimelock deployed at:", address(timelock));
+        console.log("Bound stablecoin:", stablecoin);
         console.log("Min delay (seconds):", minDelay);
         console.log("Proposer count:", proposers.length);
         console.log("Executor count (0 means open execution):", executors.length);
