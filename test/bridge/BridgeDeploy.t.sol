@@ -4,7 +4,10 @@ pragma solidity =0.8.30;
 import {BridgeTestBase} from "./BridgeTestBase.sol";
 import {BridgeConfig} from "../../src/bridge/deploy/BridgeConfig.sol";
 import {BridgeDeploy} from "../../src/bridge/deploy/BridgeDeploy.sol";
+import {BridgeBurner} from "../../src/bridge/BridgeBurner.sol";
+import {BridgeMinter} from "../../src/bridge/BridgeMinter.sol";
 import {Stablecoin} from "../../src/Stablecoin.sol";
+import {TokenMintMessage} from "../../src/bridge/TokenMintMessage.sol";
 import {
     ERC1967Proxy
 } from "lib/openzeppelin-contracts-upgradeable/lib/openzeppelin-contracts/contracts/proxy/ERC1967/ERC1967Proxy.sol";
@@ -113,5 +116,33 @@ contract BridgeDeployTest is BridgeTestBase {
         assertTrue(address(other.bridgeMinter) != address(bridge.bridgeMinter));
         assertTrue(address(other.outbox) != address(bridge.outbox));
         assertTrue(address(other.inbox) != address(bridge.inbox));
+    }
+
+    // ─── Safety net: the StablecoinNotSet guard is what makes the "armed but
+    //     unloaded" window between deployAll and setStablecoin safe. Without these
+    //     tests, a future refactor that drops the require(address(stablecoin) != 0)
+    //     check from sendTo / handleMessage would silently reintroduce M-02 / #2.
+
+    function test_SendToRevertsWhenStablecoinNotSet() public {
+        // Fresh deploy with no setStablecoin — stablecoin slot is still address(0).
+        BridgeDeploy.Contracts memory fresh =
+            BridgeDeploy.deployAll(bytes32(uint256(uint256(BASE_SALT) + 100)), ADMIN);
+
+        vm.expectRevert(BridgeBurner.StablecoinNotSet.selector);
+        fresh.bridgeBurner.sendTo(block.chainid + 1, address(0xBEEF), 1);
+    }
+
+    function test_HandleMessageRevertsWhenStablecoinNotSet() public {
+        // Fresh deploy with no setStablecoin — stablecoin slot is still address(0).
+        BridgeDeploy.Contracts memory fresh =
+            BridgeDeploy.deployAll(bytes32(uint256(uint256(BASE_SALT) + 101)), ADMIN);
+
+        // Spoof a call from the Inbox so the OnlyInbox check passes and we exercise
+        // the StablecoinNotSet guard specifically. The handler reverts BEFORE
+        // touching allowedSenders, so no further wiring is needed.
+        bytes memory payload = TokenMintMessage.encode(address(0xBEEF), 1);
+        vm.prank(address(fresh.inbox));
+        vm.expectRevert(BridgeMinter.StablecoinNotSet.selector);
+        fresh.bridgeMinter.handleMessage(block.chainid + 1, address(0xCAFE), payload);
     }
 }

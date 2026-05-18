@@ -21,7 +21,10 @@ contract BridgeMinter is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable
 
     event AllowedSenderSet(uint256 indexed srcChain, address sender);
     event InboxSet(address inbox);
-    event StablecoinSet(address stablecoin);
+    /// @notice Emitted when the stablecoin reference is set or replaced.
+    /// @dev `previousStablecoin == address(0)` on the initial wiring after deployment;
+    /// any subsequent emission represents a swap and should be alerted on by operators.
+    event StablecoinChanged(address indexed previousStablecoin, address indexed newStablecoin);
 
     error OnlyInbox();
     error DisallowedSender(uint256 srcChain, address srcSender);
@@ -62,12 +65,20 @@ contract BridgeMinter is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable
         emit InboxSet(inbox_);
     }
 
-    /// @notice Update the stablecoin contract reference.
+    /// @notice Set or replace the stablecoin contract reference.
+    /// @dev SENSITIVE MAINTENANCE OPERATION. Replacing a non-zero `stablecoin` while
+    /// the bridge is live can route inflight inbound mints (already burned on the
+    /// source chain) into a different token. Operators MUST pause this chain's Inbox
+    /// AND every counterpart chain's Outbox and let the attestor flow drain before
+    /// swapping. The accidental-overwrite case is also detectable: `StablecoinChanged`
+    /// carries the previous address, so any emission with `previousStablecoin != 0`
+    /// should trigger an operator alert.
     /// @param stablecoin_ Address of the new stablecoin contract.
     function setStablecoin(address stablecoin_) external onlyOwner {
         require(stablecoin_ != address(0), ZeroAddress());
+        address previous = address(stablecoin);
         stablecoin = Stablecoin(stablecoin_);
-        emit StablecoinSet(stablecoin_);
+        emit StablecoinChanged(previous, stablecoin_);
     }
 
     /// @inheritdoc IMessageReceiver

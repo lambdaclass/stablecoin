@@ -130,6 +130,12 @@ library BridgeDeploy {
     }
 
     /// @dev Deploy bytecode via the Arachnid CREATE2 factory and return the deployed address.
+    /// Note on factory absence: on chains where the Arachnid factory is NOT deployed
+    /// (notably zkSync Era and freshly-launched L2s before the canonical OZ-blessed
+    /// seeding tx is broadcast), `ARACHNID.call(...)` returns `success = true` because
+    /// calls to an EOA / empty account succeed. The post-check
+    /// `require(deployed.code.length > 0, ...)` is therefore the load-bearing detector
+    /// — without it the function would silently return an address with no code.
     function _deploy(bytes32 salt, bytes memory bytecode) private returns (address deployed) {
         deployed = Create2.computeAddress(salt, keccak256(bytecode), ARACHNID);
         (bool success,) = ARACHNID.call(abi.encodePacked(salt, bytecode));

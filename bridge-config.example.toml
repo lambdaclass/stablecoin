@@ -34,6 +34,36 @@
 # *other than the local one*; BridgeBurner.sendTo reverts on
 # dstChain == block.chainid.
 #
+# ⚠️ TRUST MODEL — IMPORTANT
+#
+# Address determinism is a *convenience* property, NOT a trust property. Adding
+# a chain ID to `allowed_senders` is a security decision that is INDEPENDENT of
+# whether the counterpart address matches: anyone (including an attacker) can
+# deploy a contract at the matching address on a new chain by replicating
+# `(salt, owner, compiler settings)`. The on-chain `allowedSenders[srcChain]`
+# check rejects messages from chains you haven't whitelisted, but if you
+# whitelist a chain whose Outbox is malicious, no on-chain mechanism protects
+# you — the attestor service is the load-bearing trust gate, because attestors
+# are configured off-chain to watch only a specific allow-list of chains'
+# Outboxes.
+#
+# Before adding any chain ID to `allowed_senders` / `dst_minters`:
+#
+#   1. The chain must be added to the attestor service's chain allow-list,
+#      and a quorum of attestors must be observing it via trustworthy RPCs.
+#   2. The chain must have the Arachnid CREATE2 factory deployed at
+#      `0x4e59…4956C` (verify with `cast code <addr> --rpc-url <chain>`).
+#   3. The chain must support the same compiler/optimizer profile the bridge
+#      was built with (otherwise the burner/minter init code hash differs and
+#      the address will NOT actually match).
+#   4. The chain's finality assumptions must be acceptable to the bridge's
+#      reorg-handling policy (see watcher cursor docs).
+#
+# A matching address with NONE of (1)–(4) confirmed is a security incident,
+# not a routing opportunity. Operators must not extrapolate "same address ⇒
+# safe to whitelist" — extrapolating the wrong way here is exactly how M-01
+# transitions from a configuration bug into an exploit.
+#
 # After the first deployment, verify cross-chain consistency BEFORE bridging any
 # real value:
 #   cast call $BURNER_CHAIN_A "owner()(address)" --rpc-url $RPC_A
