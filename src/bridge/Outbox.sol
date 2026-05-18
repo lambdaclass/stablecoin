@@ -10,7 +10,7 @@ import {IOutbox} from "./interfaces/IOutbox.sol";
 /// @title Outbox
 /// @notice Generic message outbox. Accepts messages and emits events for the off-chain attestation service.
 /// Stateless: does not track messages or nonces.
-/// @custom:security-contact TODO
+/// @custom:security-contact security@lambdaclass.com
 contract Outbox is Initializable, Ownable2StepUpgradeable, PausableUpgradeable, UUPSUpgradeable, IOutbox {
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {

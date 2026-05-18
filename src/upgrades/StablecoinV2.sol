@@ -4,7 +4,7 @@ pragma solidity =0.8.30;
 import {Stablecoin} from "../Stablecoin.sol";
 
 /// @custom:oz-upgrades-from Stablecoin
-/// @custom:security-contact TODO
+/// @custom:security-contact security@lambdaclass.com
 contract StablecoinV2 is Stablecoin {
     // New state variable appended after existing Stablecoin storage (slot 4+)
     uint256 private _maxSupply;

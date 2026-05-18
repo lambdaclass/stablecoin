@@ -27,7 +27,7 @@ import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/U
  *  - PAUSER_ROLE: Can pause/unpause all token operations.
  *  - FREEZER_ROLE: Can freeze/unfreeze individual accounts.
  *
- * @custom:security-contact TODO
+ * @custom:security-contact security@lambdaclass.com
  */
 contract Stablecoin is
     Initializable,
