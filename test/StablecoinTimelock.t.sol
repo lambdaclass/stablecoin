@@ -393,6 +393,105 @@ contract StablecoinTimelockTest is Test {
         assertEq(timelock.deploymentMinDelay(), DELAY);
     }
 
+    // ============ updateDelay self-call guard (boundary + direct call) ============
+
+    function test_DirectUpdateDelayReverts() public {
+        address caller = address(0xDEAD);
+        vm.prank(caller);
+        vm.expectRevert(abi.encodeWithSignature("TimelockUnauthorizedCaller(address)", caller));
+        timelock.updateDelay(DELAY);
+    }
+
+    function test_UpdateDelayExactlyAtFloorSucceeds() public {
+        // Raise the delay first so there is room to lower it back to the floor.
+        uint256 raised = 7 days;
+        bytes memory raiseData = abi.encodeCall(timelock.updateDelay, (raised));
+        bytes32 raiseSalt = bytes32(uint256(22));
+        vm.prank(PROPOSER);
+        timelock.schedule(address(timelock), 0, raiseData, bytes32(0), raiseSalt, DELAY);
+        vm.warp(block.timestamp + DELAY + 1);
+        timelock.execute(address(timelock), 0, raiseData, bytes32(0), raiseSalt);
+        assertEq(timelock.getMinDelay(), raised);
+
+        // Lower to exactly the deployment floor — boundary case, override uses `<`.
+        bytes memory lowerData = abi.encodeCall(timelock.updateDelay, (DELAY));
+        bytes32 lowerSalt = bytes32(uint256(23));
+        vm.prank(PROPOSER);
+        timelock.schedule(address(timelock), 0, lowerData, bytes32(0), lowerSalt, raised);
+        vm.warp(block.timestamp + raised + 1);
+        timelock.execute(address(timelock), 0, lowerData, bytes32(0), lowerSalt);
+
+        assertEq(timelock.getMinDelay(), DELAY);
+        assertEq(timelock.deploymentMinDelay(), DELAY);
+    }
+
+    // ============ last-admin guard fires when reached through the timelock ============
+
+    function test_E2E_RevokeLastAdminRevertsThroughTimelock() public {
+        // Timelock is the only admin (per setUp). Scheduling revokeAdmin(timelock) is fine —
+        // the timelock just queues calldata. Execution must revert with the stablecoin's
+        // LastAdminCannotBeRemoved guard.
+        bytes32 salt = bytes32(uint256(24));
+        bytes memory data = _revokeAdminCalldata(address(timelock));
+
+        vm.prank(PROPOSER);
+        timelock.scheduleRevokeAdmin(address(timelock), salt, DELAY);
+
+        vm.warp(block.timestamp + DELAY + 1);
+        vm.expectRevert();
+        timelock.execute(address(stablecoin), 0, data, bytes32(0), salt);
+
+        assertTrue(stablecoin.hasRole(stablecoin.ADMIN_ROLE(), address(timelock)));
+        assertEq(stablecoin.getRoleMemberCount(stablecoin.ADMIN_ROLE()), 1);
+    }
+
+    // ============ scheduleUpgrade forwards reinitializer data verbatim ============
+
+    function test_ScheduleUpgradeWithReinitializerDataCalldataMatchesManual() public {
+        address newImpl = address(0xCAFEBABE);
+        bytes memory reinitCall = abi.encodeWithSignature("reinitialize(uint8)", uint8(2));
+        bytes32 salt = bytes32(uint256(25));
+
+        bytes memory expected = _upgradeCalldata(newImpl, reinitCall);
+        bytes32 manualId = timelock.hashOperation(address(stablecoin), 0, expected, bytes32(0), salt);
+
+        vm.prank(PROPOSER);
+        timelock.scheduleUpgrade(newImpl, reinitCall, salt, DELAY);
+
+        assertTrue(timelock.isOperation(manualId));
+    }
+
+    // ============ paused stablecoin: removeMinter path ============
+
+    function test_E2E_RemoveMinterRevertsWhenStablecoinPaused() public {
+        address minter = address(0xBEEF);
+
+        // Add the minter first while unpaused.
+        bytes32 addSalt = bytes32(uint256(26));
+        bytes memory addData = _addMinterCalldata(minter, 1000);
+        vm.prank(PROPOSER);
+        timelock.scheduleAddMinter(minter, 1000, addSalt, DELAY);
+        vm.warp(block.timestamp + DELAY + 1);
+        timelock.execute(address(stablecoin), 0, addData, bytes32(0), addSalt);
+        assertTrue(stablecoin.hasRole(stablecoin.MINTER_ROLE(), minter));
+
+        // Pause, schedule remove, then attempt execution.
+        vm.prank(ADMIN);
+        stablecoin.pause();
+
+        bytes32 removeSalt = bytes32(uint256(27));
+        bytes memory removeData = _removeMinterCalldata(minter);
+        vm.prank(PROPOSER);
+        timelock.scheduleRemoveMinter(minter, removeSalt, DELAY);
+
+        vm.warp(block.timestamp + DELAY + 1);
+        vm.expectRevert();
+        timelock.execute(address(stablecoin), 0, removeData, bytes32(0), removeSalt);
+
+        // Minter is still present because removal reverted.
+        assertTrue(stablecoin.hasRole(stablecoin.MINTER_ROLE(), minter));
+    }
+
     // ============ access control ============
 
     function test_NonProposerCannotCallHelpers() public {
