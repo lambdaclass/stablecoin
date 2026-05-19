@@ -59,6 +59,8 @@ contract Stablecoin is
     event AccountFrozen(address indexed account);
     event AccountUnfrozen(address indexed account);
 
+    error ZeroAddress(bytes32 role);
+
     modifier whenNotFrozen(address account) {
         _whenNotFrozen(account);
         _;
@@ -93,10 +95,10 @@ contract Stablecoin is
         address pauser,
         address freezer
     ) public initializer {
-        require(admin != address(0), "ADMIN_ROLE is zero address");
-        require(burner != address(0), "BURNER_ROLE is zero address");
-        require(pauser != address(0), "PAUSER_ROLE is zero address");
-        require(freezer != address(0), "FREEZER_ROLE is zero address");
+        if (admin == address(0)) revert ZeroAddress(ADMIN_ROLE);
+        if (burner == address(0)) revert ZeroAddress(BURNER_ROLE);
+        if (pauser == address(0)) revert ZeroAddress(PAUSER_ROLE);
+        if (freezer == address(0)) revert ZeroAddress(FREEZER_ROLE);
 
         __ERC20_init(name, symbol);
         __ERC20Burnable_init();

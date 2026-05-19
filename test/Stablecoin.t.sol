@@ -1048,7 +1048,7 @@ contract StablecoinTest is Test {
 
     function test_CannotInitializeWithZeroAdmin() public {
         Stablecoin impl = new Stablecoin();
-        vm.expectRevert("ADMIN_ROLE is zero address");
+        vm.expectRevert(abi.encodeWithSelector(Stablecoin.ZeroAddress.selector, stablecoin.ADMIN_ROLE()));
         new ERC1967Proxy(
             address(impl),
             abi.encodeCall(Stablecoin.initialize, ("Stablecoin", "STBL", 6, address(0), BURNER, PAUSER, FREEZER))
@@ -1057,7 +1057,7 @@ contract StablecoinTest is Test {
 
     function test_CannotInitializeWithZeroBurner() public {
         Stablecoin impl = new Stablecoin();
-        vm.expectRevert("BURNER_ROLE is zero address");
+        vm.expectRevert(abi.encodeWithSelector(Stablecoin.ZeroAddress.selector, stablecoin.BURNER_ROLE()));
         new ERC1967Proxy(
             address(impl),
             abi.encodeCall(Stablecoin.initialize, ("Stablecoin", "STBL", 6, ADMIN, address(0), PAUSER, FREEZER))
@@ -1066,7 +1066,7 @@ contract StablecoinTest is Test {
 
     function test_CannotInitializeWithZeroPauser() public {
         Stablecoin impl = new Stablecoin();
-        vm.expectRevert("PAUSER_ROLE is zero address");
+        vm.expectRevert(abi.encodeWithSelector(Stablecoin.ZeroAddress.selector, stablecoin.PAUSER_ROLE()));
         new ERC1967Proxy(
             address(impl),
             abi.encodeCall(Stablecoin.initialize, ("Stablecoin", "STBL", 6, ADMIN, BURNER, address(0), FREEZER))
@@ -1075,7 +1075,7 @@ contract StablecoinTest is Test {
 
     function test_CannotInitializeWithZeroFreezer() public {
         Stablecoin impl = new Stablecoin();
-        vm.expectRevert("FREEZER_ROLE is zero address");
+        vm.expectRevert(abi.encodeWithSelector(Stablecoin.ZeroAddress.selector, stablecoin.FREEZER_ROLE()));
         new ERC1967Proxy(
             address(impl),
             abi.encodeCall(Stablecoin.initialize, ("Stablecoin", "STBL", 6, ADMIN, BURNER, PAUSER, address(0)))
