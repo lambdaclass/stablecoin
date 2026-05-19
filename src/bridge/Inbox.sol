@@ -24,6 +24,9 @@ contract Inbox is
 {
     using EnumerableSet for EnumerableSet.AddressSet;
 
+    /// @notice Length in bytes of a packed ECDSA signature (r || s || v).
+    uint256 internal constant SIGNATURE_LENGTH = 65;
+
     /// @notice Minimum number of valid attestor signatures required.
     uint256 public threshold;
 
@@ -166,8 +169,8 @@ contract Inbox is
 
         // Fail-closed: reject all messages when threshold is unconfigured (zero).
         require(threshold_ > 0, BelowThreshold());
-        uint256 sigCount = signatures.length / 65;
-        require(signatures.length == sigCount * 65, InvalidSignatureCount());
+        uint256 sigCount = signatures.length / SIGNATURE_LENGTH;
+        require(signatures.length == sigCount * SIGNATURE_LENGTH, InvalidSignatureCount());
         require(sigCount >= threshold_, BelowThreshold());
 
         bytes32 digest = _hashMessage(message);
@@ -178,8 +181,8 @@ contract Inbox is
 
         address prevSigner = address(0);
         for (uint256 i = 0; i < sigCount; i++) {
-            uint256 offset = i * 65;
-            address signer = ECDSA.recoverCalldata(digest, signatures[offset:offset + 65]);
+            uint256 offset = i * SIGNATURE_LENGTH;
+            address signer = ECDSA.recoverCalldata(digest, signatures[offset:offset + SIGNATURE_LENGTH]);
 
             // Enforce ascending order to detect duplicates in O(n)
             require(signer > prevSigner, DuplicateSigner());
