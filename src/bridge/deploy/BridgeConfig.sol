@@ -46,18 +46,18 @@ library BridgeConfig {
         stablecoin.addMinter(address(c.bridgeMinter), config.minterAllowance);
 
         // 3. Set up Inbox attestors and threshold
-        for (uint256 i = 0; i < config.attestors.length; i++) {
+        for (uint256 i = 0; i < config.attestors.length; ++i) {
             c.inbox.addAttestor(config.attestors[i]);
         }
         c.inbox.setThreshold(config.threshold);
 
         // 4. Set BridgeMinter allowed senders (srcChain => expected BridgeBurner address)
-        for (uint256 i = 0; i < config.allowedSenders.length; i++) {
+        for (uint256 i = 0; i < config.allowedSenders.length; ++i) {
             c.bridgeMinter.setAllowedSender(config.allowedSenders[i].srcChain, config.allowedSenders[i].sender);
         }
 
         // 5. Set BridgeBurner destination minters (dstChain => BridgeMinter address on that chain)
-        for (uint256 i = 0; i < config.dstMinters.length; i++) {
+        for (uint256 i = 0; i < config.dstMinters.length; ++i) {
             c.bridgeBurner.setDstMinter(config.dstMinters[i].dstChain, config.dstMinters[i].minter);
         }
     }
@@ -77,10 +77,10 @@ library BridgeConfig {
 
         // Zero-address checks on array entries. Attestors are checked by Inbox.addAttestor
         // at configure-time, so they're not re-validated here.
-        for (uint256 i = 0; i < config.allowedSenders.length; i++) {
+        for (uint256 i = 0; i < config.allowedSenders.length; ++i) {
             require(config.allowedSenders[i].sender != address(0), ZeroAllowedSender(i));
         }
-        for (uint256 i = 0; i < config.dstMinters.length; i++) {
+        for (uint256 i = 0; i < config.dstMinters.length; ++i) {
             require(config.dstMinters[i].minter != address(0), ZeroDstMinter(i));
         }
     }

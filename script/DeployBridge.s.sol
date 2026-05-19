@@ -45,7 +45,7 @@ contract DeployBridge is Script {
         require(srcChains.length == srcSenders.length, "allowed_senders length mismatch");
 
         config.allowedSenders = new BridgeConfig.AllowedSender[](srcChains.length);
-        for (uint256 i = 0; i < srcChains.length; i++) {
+        for (uint256 i = 0; i < srcChains.length; ++i) {
             config.allowedSenders[i] = BridgeConfig.AllowedSender(srcChains[i], srcSenders[i]);
         }
 
@@ -55,7 +55,7 @@ contract DeployBridge is Script {
         require(dstChains.length == dstMinters.length, "dst_minters length mismatch");
 
         config.dstMinters = new BridgeConfig.DstMinter[](dstChains.length);
-        for (uint256 i = 0; i < dstChains.length; i++) {
+        for (uint256 i = 0; i < dstChains.length; ++i) {
             config.dstMinters[i] = BridgeConfig.DstMinter(dstChains[i], dstMinters[i]);
         }
     }

@@ -180,7 +180,7 @@ contract Inbox is
         address[] memory attestors = _attestors.values();
 
         address prevSigner = address(0);
-        for (uint256 i = 0; i < sigCount; i++) {
+        for (uint256 i = 0; i < sigCount; ++i) {
             uint256 offset = i * SIGNATURE_LENGTH;
             address signer = ECDSA.recoverCalldata(digest, signatures[offset:offset + SIGNATURE_LENGTH]);
 
