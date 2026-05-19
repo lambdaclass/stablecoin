@@ -167,6 +167,10 @@ contract Inbox is
 
         bytes32 digest = _hashMessage(message);
 
+        // Snapshot the attestor set into memory once so the membership check
+        // inside the loop doesn't re-read storage on every iteration.
+        address[] memory attestors = _attestors.values();
+
         address prevSigner = address(0);
         for (uint256 i = 0; i < sigCount; i++) {
             uint256 offset = i * 65;
@@ -174,10 +178,21 @@ contract Inbox is
 
             // Enforce ascending order to detect duplicates in O(n)
             require(signer > prevSigner, DuplicateSigner());
-            require(_attestors.contains(signer), SignerNotAttestor(signer));
+            require(_containsAddress(attestors, signer), SignerNotAttestor(signer));
 
             prevSigner = signer;
         }
+    }
+
+    /// @dev Linear membership check over an in-memory address array. Used by
+    /// `_verifySignatures` after snapshotting the attestor set so the
+    /// per-signature check no longer hits storage.
+    function _containsAddress(address[] memory haystack, address needle) private pure returns (bool) {
+        uint256 len = haystack.length;
+        for (uint256 i = 0; i < len; i++) {
+            if (haystack[i] == needle) return true;
+        }
+        return false;
     }
 
     /// @notice Hashes raw message bytes with the EIP-712 domain separator for
