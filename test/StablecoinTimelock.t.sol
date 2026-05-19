@@ -55,13 +55,16 @@ contract StablecoinTimelockTest is Test {
         new StablecoinTimelock(Stablecoin(address(0)), DELAY, proposers, executors, address(0));
     }
 
-    function test_RevertsOnDelayBelowFloor() public {
+    function test_AcceptsArbitraryMinDelay() public {
+        // No hardcoded floor on minDelay — operators set whatever value they want.
+        // The chosen value becomes the permanent floor via deploymentMinDelay.
         address[] memory proposers = new address[](1);
         proposers[0] = PROPOSER;
         address[] memory executors = new address[](0);
 
-        vm.expectRevert(StablecoinTimelock.DelayBelowFloor.selector);
-        new StablecoinTimelock(stablecoin, 1 days - 1, proposers, executors, address(0));
+        StablecoinTimelock shortDelay = new StablecoinTimelock(stablecoin, 1, proposers, executors, address(0));
+        assertEq(shortDelay.getMinDelay(), 1);
+        assertEq(shortDelay.deploymentMinDelay(), 1);
     }
 
     function test_RevertsOnEmptyProposers() public {
@@ -74,7 +77,7 @@ contract StablecoinTimelockTest is Test {
 
     function test_ConstructionStoresImmutableStablecoin() public {
         assertEq(address(timelock.stablecoin()), address(stablecoin));
-        assertEq(timelock.MIN_DELAY_FLOOR(), 1 days);
+        assertEq(timelock.deploymentMinDelay(), DELAY);
         assertEq(timelock.getMinDelay(), DELAY);
     }
 
@@ -430,7 +433,7 @@ contract StablecoinTimelockTest is Test {
     function test_E2E_RevokeLastAdminRevertsThroughTimelock() public {
         // Timelock is the only admin (per setUp). Scheduling revokeAdmin(timelock) is fine —
         // the timelock just queues calldata. Execution must revert with the stablecoin's
-        // LastAdminCannotBeRemoved guard.
+        // AdminRoleCannotBeEmpty guard.
         bytes32 salt = bytes32(uint256(24));
         bytes memory data = _revokeAdminCalldata(address(timelock));
 

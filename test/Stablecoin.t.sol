@@ -518,7 +518,7 @@ contract StablecoinTest is Test {
 
         // Only the original ADMIN holds ADMIN_ROLE; revoking it would leave zero admins.
         vm.prank(ADMIN);
-        vm.expectRevert(Stablecoin.LastAdminCannotBeRemoved.selector);
+        vm.expectRevert(Stablecoin.AdminRoleCannotBeEmpty.selector);
         stablecoin.revokeRole(adminRole, ADMIN);
 
         assertTrue(stablecoin.hasRole(adminRole, ADMIN));
@@ -528,7 +528,7 @@ contract StablecoinTest is Test {
         bytes32 adminRole = stablecoin.ADMIN_ROLE();
 
         vm.prank(ADMIN);
-        vm.expectRevert(Stablecoin.LastAdminCannotBeRemoved.selector);
+        vm.expectRevert(Stablecoin.AdminRoleCannotBeEmpty.selector);
         stablecoin.renounceRole(adminRole, ADMIN);
 
         assertTrue(stablecoin.hasRole(adminRole, ADMIN));

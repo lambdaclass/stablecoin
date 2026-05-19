@@ -65,10 +65,11 @@ contract Stablecoin is
     event AccountFrozen(address indexed account);
     event AccountUnfrozen(address indexed account);
 
-    /// @dev Reverts when a revoke / renounce of ADMIN_ROLE would leave the contract
-    /// with zero admins. Without at least one admin, minter management and UUPS
-    /// upgrades become permanently unreachable on-chain.
-    error LastAdminCannotBeRemoved();
+    /// @dev Reverts when a revoke or renounce of ADMIN_ROLE would empty the
+    /// admin set. ADMIN_ROLE is self-administering, so a zero-member admin set
+    /// is unrecoverable on-chain: minter management, role rotation, and UUPS
+    /// upgrade authorization all become permanently unreachable.
+    error AdminRoleCannotBeEmpty();
 
     modifier whenNotFrozen(address account) {
         _whenNotFrozen(account);
@@ -276,7 +277,7 @@ contract Stablecoin is
         returns (bool)
     {
         if (role == ADMIN_ROLE && hasRole(ADMIN_ROLE, account) && getRoleMemberCount(ADMIN_ROLE) == 1) {
-            revert LastAdminCannotBeRemoved();
+            revert AdminRoleCannotBeEmpty();
         }
         return super._revokeRole(role, account);
     }

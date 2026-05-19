@@ -24,18 +24,14 @@ contract StablecoinTimelock is TimelockController {
     /// and not changeable thereafter.
     Stablecoin public immutable stablecoin;
 
-    /// @notice Minimum delay (in seconds) accepted at construction. Constructor
-    /// sanity guard against gross operator misconfiguration.
-    uint256 public constant MIN_DELAY_FLOOR = 1 days;
-
-    /// @notice The minDelay passed at construction. Acts as a permanent floor
+    /// @notice The `minDelay` passed at construction. Acts as a permanent floor
     /// on `updateDelay`: governance can raise the delay, but cannot lower it
     /// below this deploy-time value. Closes the path where a proposer schedules
-    /// `updateDelay(0)` to undermine the timelock.
+    /// `updateDelay(0)` to undermine the timelock. Operators set the floor they
+    /// want at deploy time — no hardcoded minimum is imposed by this contract.
     uint256 public immutable deploymentMinDelay;
 
     error ZeroStablecoin();
-    error DelayBelowFloor();
     error DelayBelowDeployedFloor();
     error NoProposers();
 
@@ -47,7 +43,6 @@ contract StablecoinTimelock is TimelockController {
         address admin
     ) TimelockController(minDelay, proposers, executors, admin) {
         if (address(stablecoin_) == address(0)) revert ZeroStablecoin();
-        if (minDelay < MIN_DELAY_FLOOR) revert DelayBelowFloor();
         if (proposers.length == 0) revert NoProposers();
         stablecoin = stablecoin_;
         deploymentMinDelay = minDelay;
