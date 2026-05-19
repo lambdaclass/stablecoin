@@ -202,7 +202,10 @@ contract Stablecoin is
     }
 
     /// @dev Freezes `account`, blocking all transfers to, from, and on behalf of it.
+    /// Reverts on `address(0)` because the zero address is used as `from` for mint and
+    /// `to` for burn; freezing it would break both flows.
     function freeze(address account) public onlyRole(FREEZER_ROLE) whenNotPaused {
+        require(account != address(0), "Cannot freeze zero address");
         frozen[account] = true;
         emit AccountFrozen(account);
     }

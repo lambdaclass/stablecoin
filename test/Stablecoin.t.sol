@@ -464,6 +464,12 @@ contract StablecoinTest is Test {
         success; // Silence unused variable warning (call reverts before this)
     }
 
+    function test_CannotFreezeZeroAddress() public {
+        vm.prank(FREEZER);
+        vm.expectRevert("Cannot freeze zero address");
+        stablecoin.freeze(address(0));
+    }
+
     function test_UnfreezeAccount() public {
         address account = address(1);
 
