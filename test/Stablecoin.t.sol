@@ -337,6 +337,15 @@ contract StablecoinTest is Test {
         stablecoin.unfreeze(account);
     }
 
+    function test_CannotApproveWhenPaused() public {
+        vm.prank(PAUSER);
+        stablecoin.pause();
+
+        vm.prank(address(1));
+        vm.expectRevert(ENFORCED_PAUSE_ERROR);
+        stablecoin.approve(address(2), 100);
+    }
+
     function test_CannotAddMinterWhenPaused() public {
         address account = address(1);
         vm.prank(PAUSER);
