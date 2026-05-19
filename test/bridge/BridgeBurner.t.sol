@@ -88,7 +88,7 @@ contract BridgeBurnerTest is BridgeTestBase {
 
     function test_SetOutboxRejectsZeroAddress() public {
         vm.prank(ADMIN);
-        vm.expectRevert(BridgeBurner.ZeroAddress.selector);
+        vm.expectRevert(abi.encodeWithSelector(BridgeBurner.ZeroAddress.selector, bytes32("outbox")));
         bridge.bridgeBurner.setOutbox(address(0));
     }
 

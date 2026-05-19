@@ -61,6 +61,10 @@ contract Stablecoin is
     event AccountUnfrozen(address indexed account);
 
     error ZeroAddress(bytes32 role);
+    error ValueExceedsAllowance(uint256 requested, uint256 allowance);
+    error MinterAlreadyExists(address minter);
+    error MinterDoesNotExist(address minter);
+    error AccountIsFrozen(address account);
 
     modifier whenNotFrozen(address account) {
         _whenNotFrozen(account);
@@ -131,7 +135,7 @@ contract Stablecoin is
     function mint(address to, uint256 value) public virtual onlyRole(MINTER_ROLE) {
         address sender = _msgSender();
         uint256 allowance = _minterAllowances[sender];
-        require(allowance >= value, "Value exceeds allowance");
+        require(allowance >= value, ValueExceedsAllowance(value, allowance));
         _minterAllowances[sender] = allowance - value;
         _mint(to, value);
     }
@@ -161,7 +165,7 @@ contract Stablecoin is
     /// _grantRole returns false when the role was already held, so the pre-check via
     /// hasRole is redundant.
     function addMinter(address newMinter, uint256 allowance) public onlyRole(ADMIN_ROLE) whenNotPaused {
-        require(_grantRole(MINTER_ROLE, newMinter), "Minter already exists");
+        require(_grantRole(MINTER_ROLE, newMinter), MinterAlreadyExists(newMinter));
         _minterAllowances[newMinter] = allowance;
         emit MinterAdded(newMinter, allowance);
     }
@@ -174,7 +178,7 @@ contract Stablecoin is
     /// revocation of a suspected-compromised minter. Token movements are still blocked
     /// by `_update`'s pause check, so this does not open a new token-flow path.
     function removeMinter(address minter) public onlyRole(ADMIN_ROLE) {
-        require(_revokeRole(MINTER_ROLE, minter), "Minter does not exist");
+        require(_revokeRole(MINTER_ROLE, minter), MinterDoesNotExist(minter));
         delete _minterAllowances[minter];
         emit MinterRemoved(minter);
     }
@@ -194,7 +198,7 @@ contract Stablecoin is
     /// a compromised minter without an unpause-window race, but cannot raise allowances
     /// until the contract is unpaused.
     function modifyMinterAllowance(address minter, int256 delta) public onlyRole(ADMIN_ROLE) {
-        require(hasRole(MINTER_ROLE, minter), "Minter does not exist");
+        require(hasRole(MINTER_ROLE, minter), MinterDoesNotExist(minter));
         require(!paused() || delta <= 0, "Cannot increase allowance while paused");
         uint256 oldAllowance = _minterAllowances[minter];
         uint256 newAllowance;
@@ -303,6 +307,6 @@ contract Stablecoin is
     function _authorizeUpgrade(address newImplementation) internal override onlyRole(ADMIN_ROLE) {}
 
     function _whenNotFrozen(address account) internal view {
-        require(!frozen[account], "Frozen account");
+        require(!frozen[account], AccountIsFrozen(account));
     }
 }

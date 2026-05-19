@@ -40,6 +40,8 @@ import {BridgeConfig} from "src/bridge/deploy/BridgeConfig.sol";
 /// no-op the role grants for non-existent contracts.
 contract ConfigureBridge is Script {
     error DeploymentMissing(string contractName, address expected);
+    error AllowedSendersLengthMismatch(uint256 chainCount, uint256 senderCount);
+    error DstMintersLengthMismatch(uint256 chainCount, uint256 minterCount);
 
     function run(string memory configPath) public {
         string memory toml = vm.readFile(configPath);
@@ -82,7 +84,7 @@ contract ConfigureBridge is Script {
 
         uint256[] memory srcChains = vm.parseTomlUintArray(toml, ".bridge.allowed_senders.src_chain");
         address[] memory srcSenders = vm.parseTomlAddressArray(toml, ".bridge.allowed_senders.sender");
-        require(srcChains.length == srcSenders.length, "allowed_senders length mismatch");
+        require(srcChains.length == srcSenders.length, AllowedSendersLengthMismatch(srcChains.length, srcSenders.length));
 
         config.allowedSenders = new BridgeConfig.AllowedSender[](srcChains.length);
         for (uint256 i = 0; i < srcChains.length; i++) {
@@ -91,7 +93,7 @@ contract ConfigureBridge is Script {
 
         uint256[] memory dstChains = vm.parseTomlUintArray(toml, ".bridge.dst_minters.dst_chain");
         address[] memory dstMinters = vm.parseTomlAddressArray(toml, ".bridge.dst_minters.minter");
-        require(dstChains.length == dstMinters.length, "dst_minters length mismatch");
+        require(dstChains.length == dstMinters.length, DstMintersLengthMismatch(dstChains.length, dstMinters.length));
 
         config.dstMinters = new BridgeConfig.DstMinter[](dstChains.length);
         for (uint256 i = 0; i < dstChains.length; i++) {

@@ -201,13 +201,13 @@ contract UpgradeStablecoinTest is Test {
 
         // Transfer TO frozen account still reverts
         vm.prank(USER1);
-        vm.expectRevert("Frozen account");
+        vm.expectPartialRevert(Stablecoin.AccountIsFrozen.selector);
         bool success = stablecoin.transfer(USER2, 100e6);
         assertFalse(success);
 
         // Transfer FROM frozen account still reverts
         vm.prank(USER2);
-        vm.expectRevert("Frozen account");
+        vm.expectPartialRevert(Stablecoin.AccountIsFrozen.selector);
         success = stablecoin.transfer(USER1, 100e6);
         assertFalse(success);
     }
