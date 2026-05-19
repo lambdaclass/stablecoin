@@ -83,4 +83,68 @@ contract BridgeBurnerTest is BridgeTestBase {
         vm.expectRevert();
         bridge.bridgeBurner.setStablecoin(address(0x1111));
     }
+
+    // ─── Outbox validation (L-04 / #7) ────────────────────────────────
+
+    function test_SetOutboxRejectsZeroAddress() public {
+        vm.prank(ADMIN);
+        vm.expectRevert(BridgeBurner.ZeroAddress.selector);
+        bridge.bridgeBurner.setOutbox(address(0));
+    }
+
+    function test_SetOutboxRejectsEOA() public {
+        // An EOA has no code; the try/catch around supportsInterface fails and
+        // _validateOutbox reverts with InvalidOutbox.
+        address eoa = address(0xBADC0DE);
+        vm.prank(ADMIN);
+        vm.expectRevert(abi.encodeWithSelector(BridgeBurner.InvalidOutbox.selector, eoa));
+        bridge.bridgeBurner.setOutbox(eoa);
+    }
+
+    function test_SetOutboxRejectsSilentOutbox() public {
+        // A contract that exposes sendMessage but doesn't advertise IOutbox via
+        // ERC-165 must be rejected — this is the failure mode the audit found
+        // (tokens burn without a verifiable bridge message).
+        SilentOutbox silent = new SilentOutbox();
+        vm.prank(ADMIN);
+        vm.expectRevert(abi.encodeWithSelector(BridgeBurner.InvalidOutbox.selector, address(silent)));
+        bridge.bridgeBurner.setOutbox(address(silent));
+    }
+
+    function test_SetOutboxRejectsContractReturningFalse() public {
+        // A contract that implements supportsInterface but returns false for
+        // IOutbox is rejected by the require inside _validateOutbox.
+        LyingOutbox lying = new LyingOutbox();
+        vm.prank(ADMIN);
+        vm.expectRevert(abi.encodeWithSelector(BridgeBurner.InvalidOutbox.selector, address(lying)));
+        bridge.bridgeBurner.setOutbox(address(lying));
+    }
+
+    function test_SetOutboxAcceptsCanonicalOutbox() public {
+        // The canonical Outbox deployed in setUp advertises IOutbox via ERC-165,
+        // so swapping to a freshly-deployed canonical Outbox succeeds.
+        address newOutbox = address(bridge.outbox);
+        vm.prank(ADMIN);
+        bridge.bridgeBurner.setOutbox(newOutbox);
+        assertEq(address(bridge.bridgeBurner.outbox()), newOutbox);
+    }
+}
+
+/// @dev Exposes `sendMessage` matching the IOutbox signature but does NOT emit
+/// `MessageSent` and does NOT advertise IOutbox via ERC-165. Models the audit's
+/// "silent Outbox" attack — `BridgeBurner.setOutbox` must reject this.
+contract SilentOutbox {
+    function sendMessage(uint256, address, bytes calldata) external pure {
+        // no-op: deliberately does not emit MessageSent
+    }
+}
+
+/// @dev Implements supportsInterface but returns false for every interface ID,
+/// including IOutbox. `BridgeBurner.setOutbox` must reject this.
+contract LyingOutbox {
+    function sendMessage(uint256, address, bytes calldata) external pure {}
+
+    function supportsInterface(bytes4) external pure returns (bool) {
+        return false;
+    }
 }
