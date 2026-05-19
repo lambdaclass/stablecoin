@@ -14,6 +14,7 @@ import {
 } from "@openzeppelin/contracts-upgradeable/access/extensions/AccessControlEnumerableUpgradeable.sol";
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
+import {SignedMath} from "@openzeppelin/contracts/utils/math/SignedMath.sol";
 
 /**
  * @title Stablecoin
@@ -171,17 +172,33 @@ contract Stablecoin is
         emit MinterRemoved(minter);
     }
 
-    /// @dev Updates the minting allowance for an existing minter without changing their role.
+    /// @dev Applies a signed `delta` to the minter's allowance, relative to its current value.
     ///
-    /// While paused, only reductions (new <= current) are accepted, so the admin can de-risk
-    /// a compromised minter without an unpause-window race, but cannot raise allowances until
-    /// the contract is unpaused.
-    function modifyMinterAllowance(address minter, uint256 allowance) public onlyRole(ADMIN_ROLE) {
+    /// Using a delta (rather than an absolute replacement) closes a front-running window:
+    /// with an absolute API, a planned change from A to B could be raced by a `mint(_, A)`
+    /// that consumes the OLD allowance just before B is written — effectively spending
+    /// both A and B. With a delta, the change is always relative to whatever the current
+    /// allowance is at the moment the change lands, so a front-running mint can only ever
+    /// shrink the post-state, never re-grant the consumed amount.
+    ///
+    /// Negative deltas saturate at zero (no underflow revert).
+    ///
+    /// While paused, only reductions (delta <= 0) are accepted, so the admin can de-risk
+    /// a compromised minter without an unpause-window race, but cannot raise allowances
+    /// until the contract is unpaused.
+    function modifyMinterAllowance(address minter, int256 delta) public onlyRole(ADMIN_ROLE) {
         require(hasRole(MINTER_ROLE, minter), "Minter does not exist");
+        require(!paused() || delta <= 0, "Cannot increase allowance while paused");
         uint256 oldAllowance = _minterAllowances[minter];
-        require(!paused() || allowance <= oldAllowance, "Cannot increase allowance while paused");
-        _minterAllowances[minter] = allowance;
-        emit MinterAllowanceChanged(minter, oldAllowance, allowance);
+        uint256 newAllowance;
+        if (delta >= 0) {
+            newAllowance = oldAllowance + uint256(delta);
+        } else {
+            uint256 magnitude = SignedMath.abs(delta);
+            newAllowance = magnitude >= oldAllowance ? 0 : oldAllowance - magnitude;
+        }
+        _minterAllowances[minter] = newAllowance;
+        emit MinterAllowanceChanged(minter, oldAllowance, newAllowance);
     }
 
     /**

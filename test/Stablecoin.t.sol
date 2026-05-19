@@ -89,33 +89,42 @@ contract StablecoinTest is Test {
         assertEq(stablecoin.minterAllowance(newMinter), 0);
     }
 
-    function test_ModifyMinterAllowance() public {
+    function test_ModifyMinterAllowanceIncreasesByDelta() public {
         uint256 oldAllowance = stablecoin.minterAllowance(MINTER);
-        uint256 newAllowance = 5000;
+        int256 delta = 4000;
+        uint256 newAllowance = oldAllowance + uint256(delta);
 
         vm.startPrank(ADMIN);
         vm.expectEmit();
         emit Stablecoin.MinterAllowanceChanged(MINTER, oldAllowance, newAllowance);
-        stablecoin.modifyMinterAllowance(MINTER, newAllowance);
+        stablecoin.modifyMinterAllowance(MINTER, delta);
         vm.stopPrank();
 
         assertEq(stablecoin.minterAllowance(MINTER), newAllowance);
     }
 
-    function test_ModifyMinterAllowanceCanDecrease() public {
+    function test_ModifyMinterAllowanceDecreasesByDelta() public {
         uint256 initialAllowance = stablecoin.minterAllowance(MINTER);
-        uint256 newAllowance = initialAllowance / 2;
+        int256 delta = -int256(initialAllowance / 2);
 
         vm.startPrank(ADMIN);
-        stablecoin.modifyMinterAllowance(MINTER, newAllowance);
+        stablecoin.modifyMinterAllowance(MINTER, delta);
         vm.stopPrank();
 
-        assertEq(stablecoin.minterAllowance(MINTER), newAllowance);
+        assertEq(stablecoin.minterAllowance(MINTER), initialAllowance - uint256(-delta));
+    }
+
+    function test_ModifyMinterAllowanceNegativeDeltaSaturatesAtZero() public {
+        uint256 initialAllowance = stablecoin.minterAllowance(MINTER);
+
+        vm.prank(ADMIN);
+        stablecoin.modifyMinterAllowance(MINTER, -int256(initialAllowance) - 1);
+
+        assertEq(stablecoin.minterAllowance(MINTER), 0);
     }
 
     function test_OnlyAdminCanModifyMinterAllowance() public {
         address nonAdmin = address(2);
-        uint256 amount = 1000;
 
         bytes memory expectedError = abi.encodeWithSignature(
             "AccessControlUnauthorizedAccount(address,bytes32)", nonAdmin, stablecoin.ADMIN_ROLE()
@@ -123,7 +132,7 @@ contract StablecoinTest is Test {
 
         vm.prank(nonAdmin);
         vm.expectRevert(expectedError);
-        stablecoin.modifyMinterAllowance(MINTER, amount);
+        stablecoin.modifyMinterAllowance(MINTER, 1000);
     }
 
     function test_OnlyAdminCanRemoveMinter() public {
@@ -564,7 +573,7 @@ contract StablecoinTest is Test {
         address nonMinter = address(0x999);
         vm.prank(ADMIN);
         vm.expectRevert("Minter does not exist");
-        stablecoin.modifyMinterAllowance(nonMinter, 1000);
+        stablecoin.modifyMinterAllowance(nonMinter, int256(1000));
     }
 
     // ============ Burner Enumeration Tests ============
@@ -778,20 +787,21 @@ contract StablecoinTest is Test {
 
         vm.prank(ADMIN);
         vm.expectRevert("Cannot increase allowance while paused");
-        stablecoin.modifyMinterAllowance(MINTER, 5000);
+        stablecoin.modifyMinterAllowance(MINTER, int256(5000));
     }
 
     function test_CanDecreaseMinterAllowanceWhenPaused() public {
         uint256 oldAllowance = stablecoin.minterAllowance(MINTER);
-        uint256 newAllowance = oldAllowance / 2;
+        uint256 reduction = oldAllowance / 2;
+        uint256 expectedAllowance = oldAllowance - reduction;
 
         vm.prank(PAUSER);
         stablecoin.pause();
 
         vm.prank(ADMIN);
-        stablecoin.modifyMinterAllowance(MINTER, newAllowance);
+        stablecoin.modifyMinterAllowance(MINTER, -int256(reduction));
 
-        assertEq(stablecoin.minterAllowance(MINTER), newAllowance);
+        assertEq(stablecoin.minterAllowance(MINTER), expectedAllowance);
     }
 
     // ============ Role Permission Tests ============
