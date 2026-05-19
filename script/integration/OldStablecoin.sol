@@ -1,6 +1,18 @@
 // SPDX-License-Identifier: UNLICENSED
-// TODO: add the right license
 pragma solidity =0.8.30;
+
+// ============================================================================
+// INTEGRATION-TEST FIXTURE — NOT FOR PRODUCTION DEPLOYMENT
+//
+// Verbatim snapshot of `src/Stablecoin.sol` at branch `main` (commit 1950819),
+// renamed to `OldStablecoin` so the integration script can deploy a proxy at
+// the *pre-M-01* implementation and then upgrade it to the fixed version in
+// `src/Stablecoin.sol`. Exercises the real upgrade migration path operators
+// will follow on an already-deployed mainnet proxy.
+//
+// DO NOT import this file from `src/`. Only the integration script under
+// `script/integration/` references it.
+// ============================================================================
 
 import {
     ERC20BurnableUpgradeable
@@ -16,24 +28,12 @@ import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Ini
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 
 /**
- * @title Stablecoin
- * @dev Upgradeable ERC20 stablecoin with role-based access control.
- *
- * Roles:
- *  - ADMIN_ROLE: Manages minters and their allowances, authorizes upgrades, and
- *    administers itself (can grant or revoke ADMIN_ROLE on other accounts).
- *    For production deployments, the holder of ADMIN_ROLE MUST be an OpenZeppelin
- *    `TimelockController` (or equivalent delayed-execution governance contract);
- *    direct EOAs or unsynchronized multisigs SHOULD NOT hold ADMIN_ROLE because the
- *    role is self-administering and any rotation, grant, or revocation runs
- *    immediately.
- *  - MINTER_ROLE: Can mint tokens up to an individual allowance. Managed exclusively
- *    through addMinter/removeMinter to keep role and allowance state in sync.
- *  - BURNER_ROLE: Can burn tokens from own balance or via allowance (burnFrom).
- *  - PAUSER_ROLE: Can pause/unpause all token operations.
- *  - FREEZER_ROLE: Can freeze/unfreeze individual accounts.
+ * @title OldStablecoin
+ * @dev Pre-M-01 Stablecoin (snapshot from main). Used only by the integration
+ * upgrade script to model an already-deployed proxy. See banner at top of
+ * file.
  */
-contract Stablecoin is
+contract OldStablecoin is
     Initializable,
     ERC20Upgradeable,
     ERC20BurnableUpgradeable,
@@ -65,12 +65,6 @@ contract Stablecoin is
     event AccountFrozen(address indexed account);
     event AccountUnfrozen(address indexed account);
 
-    /// @dev Reverts when a revoke or renounce of ADMIN_ROLE would empty the
-    /// admin set. ADMIN_ROLE is self-administering, so a zero-member admin set
-    /// is unrecoverable on-chain: minter management, role rotation, and UUPS
-    /// upgrade authorization all become permanently unreachable.
-    error AdminRoleCannotBeEmpty();
-
     modifier whenNotFrozen(address account) {
         _whenNotFrozen(account);
         _;
@@ -95,15 +89,6 @@ contract Stablecoin is
      * making grantRole/revokeRole for MINTER_ROLE always revert. The only way to
      * manage minters is through addMinter/removeMinter, which atomically update both
      * the role and the allowance, preventing state divergence between the two.
-     *
-     * @dev ADMIN_ROLE is configured as its own admin so that an existing admin can
-     * rotate the role on-chain (grant ADMIN_ROLE to a new account, revoke it from
-     * an old one). Because the role is self-administering and grants/revocations
-     * are immediate, the recommended `admin` value at initialize-time is an
-     * OpenZeppelin `TimelockController` deployed via `script/DeployTimelock.s.sol`.
-     * Routing rotations through a timelock gives the team a delay window to detect
-     * and cancel a hostile rotation before it executes. Revoking or renouncing the
-     * last remaining admin reverts (see `_revokeRole`).
      */
     function initialize(
         string memory name,
@@ -123,7 +108,6 @@ contract Stablecoin is
         _decimals = decimals_;
 
         // MINTER_ROLE intentionally not listed here — see @dev note above.
-        _setRoleAdmin(ADMIN_ROLE, ADMIN_ROLE);
         _setRoleAdmin(BURNER_ROLE, ADMIN_ROLE);
         _setRoleAdmin(PAUSER_ROLE, ADMIN_ROLE);
         _setRoleAdmin(FREEZER_ROLE, ADMIN_ROLE);
@@ -131,22 +115,6 @@ contract Stablecoin is
         _grantRole(BURNER_ROLE, burner);
         _grantRole(PAUSER_ROLE, pauser);
         _grantRole(FREEZER_ROLE, freezer);
-    }
-
-    /// @notice One-time storage-slot repair for proxies that were initialized
-    /// under a prior implementation where `_setRoleAdmin(ADMIN_ROLE, ADMIN_ROLE)`
-    /// was never called. Sets `ADMIN_ROLE` as its own admin so the current
-    /// admin can rotate the role (M-01).
-    ///
-    /// @dev Gated by `reinitializer(2)` so it can run at most once per proxy,
-    /// and by `onlyRole(ADMIN_ROLE)` so only the legitimate admin can trigger
-    /// the repair. On a freshly-deployed proxy the call is a no-op (the new
-    /// `initialize` already sets the same value); on an upgraded proxy it
-    /// repairs the previously-unset slot. Intended call sites:
-    ///   proxy.upgradeToAndCall(newImpl, abi.encodeCall(this.reinitializeAdminRole, ()))
-    /// so the upgrade and the storage repair happen atomically.
-    function reinitializeAdminRole() public reinitializer(2) onlyRole(ADMIN_ROLE) {
-        _setRoleAdmin(ADMIN_ROLE, ADMIN_ROLE);
     }
 
     function decimals() public view override returns (uint8) {
@@ -282,19 +250,5 @@ contract Stablecoin is
 
     function _whenNotFrozen(address account) internal view {
         require(!frozen[account], "Frozen account");
-    }
-
-    /// @dev Centralized revoke hook for both `revokeRole` and `renounceRole`.
-    /// Refuses to remove the last remaining holder of ADMIN_ROLE, since ADMIN_ROLE
-    /// is its own admin (a zero-admin state is unrecoverable on-chain).
-    function _revokeRole(bytes32 role, address account)
-        internal
-        override(AccessControlEnumerableUpgradeable)
-        returns (bool)
-    {
-        if (role == ADMIN_ROLE && hasRole(ADMIN_ROLE, account) && getRoleMemberCount(ADMIN_ROLE) == 1) {
-            revert AdminRoleCannotBeEmpty();
-        }
-        return super._revokeRole(role, account);
     }
 }

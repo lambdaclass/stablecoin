@@ -7,6 +7,7 @@ import {
     ERC1967Proxy
 } from "lib/openzeppelin-contracts-upgradeable/lib/openzeppelin-contracts/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {TimelockController} from "@openzeppelin/contracts/governance/TimelockController.sol";
+import {OldStablecoin} from "../script/integration/OldStablecoin.sol";
 
 contract StablecoinTest is Test {
     Stablecoin public stablecoin;
@@ -621,6 +622,92 @@ contract StablecoinTest is Test {
         vm.warp(block.timestamp + delay + 1);
         timelock.execute(address(stablecoin), 0, callData, bytes32(0), salt);
         assertTrue(stablecoin.hasRole(stablecoin.MINTER_ROLE(), newMinter));
+    }
+
+    // ============ reinitializeAdminRole Tests ============
+
+    function test_ReinitializeAdminRole_RevertsOnFreshDeploy() public {
+        // A freshly-deployed proxy is already at version 1 with the role admin
+        // correctly set; calling reinitializer(2) here would normally succeed
+        // and set _initialized to 2. We assert this happens once, then a
+        // second call reverts.
+        vm.prank(ADMIN);
+        stablecoin.reinitializeAdminRole();
+        assertEq(stablecoin.getRoleAdmin(stablecoin.ADMIN_ROLE()), stablecoin.ADMIN_ROLE());
+
+        // Second call reverts with InvalidInitialization (version cap reached).
+        vm.prank(ADMIN);
+        vm.expectRevert(abi.encodeWithSignature("InvalidInitialization()"));
+        stablecoin.reinitializeAdminRole();
+    }
+
+    function test_ReinitializeAdminRole_OnlyAdmin() public {
+        address nonAdmin = address(0xBADD);
+        bytes memory expectedError = abi.encodeWithSignature(
+            "AccessControlUnauthorizedAccount(address,bytes32)", nonAdmin, stablecoin.ADMIN_ROLE()
+        );
+
+        vm.prank(nonAdmin);
+        vm.expectRevert(expectedError);
+        stablecoin.reinitializeAdminRole();
+    }
+
+    /// @dev End-to-end coverage of the upgrade-from-main migration. Deploys the
+    /// pre-M-01 implementation behind a proxy, proves the bug exists (the
+    /// initial admin can't rotate ADMIN_ROLE), then atomically upgrades to
+    /// this branch's implementation via `upgradeToAndCall(newImpl,
+    /// reinitializeAdminRole())`. After the upgrade the role admin slot is
+    /// repaired and the admin can rotate the role to a fresh address.
+    /// Runs under standard `forge test` — no anvil required, complementing the
+    /// bash-orchestrated integration script.
+    function test_UpgradeFromMain_RepairsRoleAdminAndAllowsRotation() public {
+        // 1. Deploy OldStablecoin behind a proxy. Use a distinct admin EOA so
+        //    it's clear we're not relying on test-class state.
+        address oldAdmin = address(0xA1);
+        OldStablecoin oldImpl = new OldStablecoin();
+        ERC1967Proxy oldProxy = new ERC1967Proxy(
+            address(oldImpl),
+            abi.encodeCall(OldStablecoin.initialize, ("Legacy", "LGC", 18, oldAdmin, oldAdmin, oldAdmin, oldAdmin))
+        );
+        OldStablecoin legacy = OldStablecoin(address(oldProxy));
+        bytes32 adminRole = legacy.ADMIN_ROLE();
+
+        // 2. Prove the bug: on the pre-M-01 implementation the role admin of
+        //    ADMIN_ROLE is DEFAULT_ADMIN_ROLE, held by no one. So even the
+        //    legitimate admin can't grant ADMIN_ROLE to anyone. This is the
+        //    failure mode the audit flagged (M-01).
+        address newHolder = address(0xA2);
+        vm.prank(oldAdmin);
+        vm.expectRevert(
+            abi.encodeWithSignature("AccessControlUnauthorizedAccount(address,bytes32)", oldAdmin, bytes32(0))
+        );
+        legacy.grantRole(adminRole, newHolder);
+
+        // 3. Atomic upgrade + reinit. The reinit fixes the role admin slot in
+        //    the same tx the implementation flips, eliminating any window in
+        //    which the proxy is on new code with an unrepaired storage layout.
+        Stablecoin newImpl = new Stablecoin();
+        vm.prank(oldAdmin);
+        Stablecoin(address(oldProxy))
+            .upgradeToAndCall(address(newImpl), abi.encodeCall(Stablecoin.reinitializeAdminRole, ()));
+        Stablecoin upgraded = Stablecoin(address(oldProxy));
+
+        // 4. Slot is now repaired: ADMIN_ROLE administers itself.
+        assertEq(upgraded.getRoleAdmin(adminRole), adminRole, "role admin slot not repaired");
+
+        // 5. Old admin can now do the thing that was previously impossible:
+        //    grant ADMIN_ROLE to a fresh holder.
+        vm.prank(oldAdmin);
+        upgraded.grantRole(adminRole, newHolder);
+        assertTrue(upgraded.hasRole(adminRole, newHolder), "grantRole failed post-upgrade");
+        assertTrue(upgraded.hasRole(adminRole, oldAdmin), "oldAdmin lost the role");
+        assertEq(upgraded.getRoleMemberCount(adminRole), 2);
+
+        // 6. The reinitializer's version cap is consumed: a second call must
+        //    revert, so we can't accidentally repair twice.
+        vm.prank(oldAdmin);
+        vm.expectRevert(abi.encodeWithSignature("InvalidInitialization()"));
+        upgraded.reinitializeAdminRole();
     }
 
     function test_NonAdminCannotUpgrade() public {
