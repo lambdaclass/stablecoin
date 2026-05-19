@@ -1,5 +1,20 @@
 # Bridge deployment configuration (example for chain A)
-# Usage: forge script script/DeployBridge.s.sol --sig "run(string)" bridge-config.example.toml
+#
+# Two-step deploy → configure flow (see docs/bridge.md "Two-script flow"):
+#
+#   # Step 1 — single EOA deployer broadcasts the CREATE2 deployments.
+#   #          The deployer pays gas but never gains owner privileges; `owner`
+#   #          below is baked into every proxy's init code from t=0.
+#   forge script script/DeployBridge.s.sol \
+#     --sig "run(string)" bridge-config.example.toml \
+#     --rpc-url $RPC --broadcast --private-key $DEPLOYER_PK
+#
+#   # Step 2 — bridge owner (typically a Safe) configures the deployed contracts.
+#   #          Run in --sender simulation mode to produce Safe-tx-builder JSON
+#   #          for signer review; the Safe itself executes on-chain.
+#   forge script script/ConfigureBridge.s.sol \
+#     --sig "run(string)" bridge-config.example.toml \
+#     --rpc-url $RPC --sender $SAFE_ADDRESS
 #
 # NOTE: BridgeBurner and BridgeMinter proxy addresses are deterministic across every
 # EVM chain (Arachnid CREATE2 factory + same init code) — but ONLY when EVERY input
@@ -76,6 +91,17 @@
 stablecoin = "0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512"
 
 # Owner of all bridge contracts (can upgrade and configure).
+#
+# ⚠️ PRODUCTION: replace the placeholder below with your Safe address. The Safe
+# MUST be deployed at the same address on every chain (see the SafeProxyFactory
+# note in the header). The Safe also needs `ADMIN_ROLE` on the stablecoin so
+# that `ConfigureBridge` can grant `BURNER_ROLE` to the BridgeBurner and add the
+# BridgeMinter as a minter.
+#
+# The value below (`0xf39F…2266`, Anvil account #0) is for DEV ONLY. In dev,
+# deployer == owner == admin, so DeployBridge and ConfigureBridge can be run
+# back-to-back from the same key. In production they MUST be split: the EOA
+# deployer runs DeployBridge, then the Safe runs ConfigureBridge separately.
 #
 # MUST be byte-identical to the `owner` used on every other chain this bridge
 # is deployed to. The address is baked into the proxy init code, so any

@@ -118,6 +118,35 @@ contract BridgeDeployTest is BridgeTestBase {
         assertTrue(address(other.inbox) != address(bridge.inbox));
     }
 
+    // ─── computeAddresses ↔ deployAll correspondence ──────────────────
+    //
+    // `computeAddresses` is the source of truth for ConfigureBridge — it derives the
+    // proxy addresses purely (no chain RPC, no deployment) from (salt, owner). If the
+    // derivation ever diverges from `deployAll`, ConfigureBridge will silently target
+    // wrong addresses on production chains. The two functions must agree exactly.
+
+    function test_ComputeAddressesMatchesDeployedAddresses() public view {
+        BridgeDeploy.Contracts memory computed = BridgeDeploy.computeAddresses(BASE_SALT, ADMIN);
+        assertEq(address(computed.outbox), address(bridge.outbox), "outbox address mismatch");
+        assertEq(address(computed.inbox), address(bridge.inbox), "inbox address mismatch");
+        assertEq(address(computed.bridgeBurner), address(bridge.bridgeBurner), "bridgeBurner address mismatch");
+        assertEq(address(computed.bridgeMinter), address(bridge.bridgeMinter), "bridgeMinter address mismatch");
+    }
+
+    function testFuzz_ComputeAddressesMatchesDeployedAddresses(bytes32 salt, address owner) public {
+        // Skip the salt we already used in setUp to avoid CREATE2 collisions.
+        vm.assume(salt != BASE_SALT);
+        vm.assume(owner != address(0));
+
+        BridgeDeploy.Contracts memory computed = BridgeDeploy.computeAddresses(salt, owner);
+        BridgeDeploy.Contracts memory deployed = BridgeDeploy.deployAll(salt, owner);
+
+        assertEq(address(computed.outbox), address(deployed.outbox));
+        assertEq(address(computed.inbox), address(deployed.inbox));
+        assertEq(address(computed.bridgeBurner), address(deployed.bridgeBurner));
+        assertEq(address(computed.bridgeMinter), address(deployed.bridgeMinter));
+    }
+
     // ─── Safety net: the StablecoinNotSet guard is what makes the "armed but
     //     unloaded" window between deployAll and setStablecoin safe. Without these
     //     tests, a future refactor that drops the require(address(stablecoin) != 0)

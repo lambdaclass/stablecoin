@@ -32,6 +32,9 @@ contract BridgeBurner is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable
     error ZeroAmount();
     error SameChain();
     error StablecoinNotSet();
+    /// @notice Thrown by `setStablecoin` when the target address does not expose the
+    /// Stablecoin shape (no `BURNER_ROLE()` accessor returning the canonical constant).
+    error NotAStablecoin(address target);
 
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
@@ -76,11 +79,34 @@ contract BridgeBurner is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable
     /// also detectable: `StablecoinChanged` carries the previous address, so any
     /// emission with `previousStablecoin != 0` should trigger an operator alert.
     /// @param stablecoin_ Address of the new stablecoin contract.
+    /// @dev Performs a shape probe (`BURNER_ROLE()` returns the canonical constant) to
+    /// catch the most common operator mistakes: pasting an EOA, a wrong-contract address,
+    /// or an undeployed CREATE2 target. This is NOT a cross-chain identity check — a
+    /// matching Stablecoin shape on the wrong chain still passes. Cross-chain wiring
+    /// correctness must be verified out-of-band before bridging real value.
     function setStablecoin(address stablecoin_) external onlyOwner {
         require(stablecoin_ != address(0), ZeroAddress());
+        _requireStablecoinShape(stablecoin_);
         address previous = address(stablecoin);
         stablecoin = Stablecoin(stablecoin_);
         emit StablecoinChanged(previous, stablecoin_);
+    }
+
+    /// @dev Reverts if `target` is not a Stablecoin-shaped contract. The explicit
+    /// `code.length` check is required because Solidity 0.8.x's compiler-inserted
+    /// extcodesize check sits AROUND the external call (not inside it), so a call to
+    /// an EOA reverts with "call to non-contract address" that try/catch does NOT
+    /// catch. Once the codesize check passes, the try/catch handles the remaining
+    /// failure modes: a contract that lacks `BURNER_ROLE()` (call reverts → catch
+    /// branch) and a contract whose `BURNER_ROLE()` returns the wrong value (require
+    /// branch in the success arm).
+    function _requireStablecoinShape(address target) private view {
+        require(target.code.length > 0, NotAStablecoin(target));
+        try Stablecoin(target).BURNER_ROLE() returns (bytes32 role) {
+            require(role == keccak256("BURNER_ROLE"), NotAStablecoin(target));
+        } catch {
+            revert NotAStablecoin(target);
+        }
     }
 
     /// @inheritdoc IBridgeBurner

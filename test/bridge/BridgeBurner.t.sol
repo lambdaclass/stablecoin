@@ -83,4 +83,36 @@ contract BridgeBurnerTest is BridgeTestBase {
         vm.expectRevert();
         bridge.bridgeBurner.setStablecoin(address(0x1111));
     }
+
+    // ─── setStablecoin shape probe ────────────────────────────────────
+    //
+    // The shape probe is a safety net against operator typos: pasting an EOA, an
+    // unrelated contract, or an undeployed CREATE2 target should all revert before
+    // the storage slot is corrupted.
+
+    function test_SetStablecoinRevertsOnEoa() public {
+        // 0xCAFE is an EOA (no code). The probe call returns success with empty
+        // return data; the bytes32 decode fails and triggers the catch branch.
+        vm.prank(ADMIN);
+        vm.expectRevert(abi.encodeWithSelector(BridgeBurner.NotAStablecoin.selector, address(0xCAFE)));
+        bridge.bridgeBurner.setStablecoin(address(0xCAFE));
+    }
+
+    function test_SetStablecoinRevertsOnNonStablecoinContract() public {
+        // A real contract that lacks the Stablecoin shape — calling BURNER_ROLE()
+        // on it triggers the EVM fallback / no-such-function path.
+        address notAStablecoin = address(bridge.outbox);
+        vm.prank(ADMIN);
+        vm.expectRevert(abi.encodeWithSelector(BridgeBurner.NotAStablecoin.selector, notAStablecoin));
+        bridge.bridgeBurner.setStablecoin(notAStablecoin);
+    }
+
+    function test_SetStablecoinAcceptsRealStablecoin() public {
+        // Sanity check that the probe doesn't false-positive against the real type.
+        // (BridgeTestBase already calls setStablecoin in setUp; re-doing it here
+        // exercises the post-deploy maintenance path explicitly.)
+        vm.prank(ADMIN);
+        bridge.bridgeBurner.setStablecoin(address(stablecoin));
+        assertEq(address(bridge.bridgeBurner.stablecoin()), address(stablecoin));
+    }
 }

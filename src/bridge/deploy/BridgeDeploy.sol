@@ -83,6 +83,77 @@ library BridgeDeploy {
         c.bridgeMinter = _deployBridgeMinter(baseSalt, owner, address(c.inbox));
     }
 
+    /// @notice Compute the CREATE2 proxy addresses that `deployAll(baseSalt, owner)`
+    /// would produce, WITHOUT performing any deployment.
+    /// @dev Pure mirror of `deployAll`'s address derivation. The salt strings, init-code
+    /// shapes, and dependency chain (Outbox/Inbox proxies feed BridgeBurner/Minter init
+    /// code) MUST stay identical to `_deployOutbox` / `_deployInbox` / `_deployBridgeBurner`
+    /// / `_deployBridgeMinter` below. Any change to a salt suffix, initializer signature,
+    /// or contract bytecode must be reflected in both places or the two will silently
+    /// disagree and `ConfigureBridge` will target the wrong addresses.
+    /// @dev Intended for a Safe-driven configure flow where the configure transaction
+    /// is built and signed off-chain, separately from the deploy broadcast. See
+    /// `script/ConfigureBridge.s.sol`.
+    function computeAddresses(bytes32 baseSalt, address owner) internal pure returns (Contracts memory c) {
+        address outboxImpl = Create2.computeAddress(
+            keccak256(abi.encodePacked(baseSalt, "outbox-impl")), keccak256(type(Outbox).creationCode), ARACHNID
+        );
+        address outboxProxy = Create2.computeAddress(
+            keccak256(abi.encodePacked(baseSalt, "outbox-proxy")),
+            keccak256(
+                abi.encodePacked(
+                    type(ERC1967Proxy).creationCode, abi.encode(outboxImpl, abi.encodeCall(Outbox.initialize, (owner)))
+                )
+            ),
+            ARACHNID
+        );
+        c.outbox = Outbox(outboxProxy);
+
+        address inboxImpl = Create2.computeAddress(
+            keccak256(abi.encodePacked(baseSalt, "inbox-impl")), keccak256(type(Inbox).creationCode), ARACHNID
+        );
+        address inboxProxy = Create2.computeAddress(
+            keccak256(abi.encodePacked(baseSalt, "inbox-proxy")),
+            keccak256(
+                abi.encodePacked(
+                    type(ERC1967Proxy).creationCode, abi.encode(inboxImpl, abi.encodeCall(Inbox.initialize, (owner)))
+                )
+            ),
+            ARACHNID
+        );
+        c.inbox = Inbox(inboxProxy);
+
+        address burnerImpl = Create2.computeAddress(
+            keccak256(abi.encodePacked(baseSalt, "burner-impl")), keccak256(type(BridgeBurner).creationCode), ARACHNID
+        );
+        address burnerProxy = Create2.computeAddress(
+            keccak256(abi.encodePacked(baseSalt, "burner-proxy")),
+            keccak256(
+                abi.encodePacked(
+                    type(ERC1967Proxy).creationCode,
+                    abi.encode(burnerImpl, abi.encodeCall(BridgeBurner.initialize, (owner, outboxProxy)))
+                )
+            ),
+            ARACHNID
+        );
+        c.bridgeBurner = BridgeBurner(burnerProxy);
+
+        address minterImpl = Create2.computeAddress(
+            keccak256(abi.encodePacked(baseSalt, "minter-impl")), keccak256(type(BridgeMinter).creationCode), ARACHNID
+        );
+        address minterProxy = Create2.computeAddress(
+            keccak256(abi.encodePacked(baseSalt, "minter-proxy")),
+            keccak256(
+                abi.encodePacked(
+                    type(ERC1967Proxy).creationCode,
+                    abi.encode(minterImpl, abi.encodeCall(BridgeMinter.initialize, (owner, inboxProxy)))
+                )
+            ),
+            ARACHNID
+        );
+        c.bridgeMinter = BridgeMinter(minterProxy);
+    }
+
     function _deployOutbox(bytes32 baseSalt, address owner) private returns (Outbox) {
         address impl = _deploy(keccak256(abi.encodePacked(baseSalt, "outbox-impl")), type(Outbox).creationCode);
         address proxy = _deploy(
