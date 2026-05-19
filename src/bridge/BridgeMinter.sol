@@ -17,7 +17,7 @@ contract BridgeMinter is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable
 
     /// @notice Mapping from source chain ID to the expected sender address (BridgeBurner on that chain).
     /// A source chain is allowed if and only if the mapped address is non-zero.
-    mapping(uint256 => address) public allowedSenders;
+    mapping(uint256 srcChain => address sender) public allowedSenders;
 
     event AllowedSenderSet(uint256 indexed srcChain, address sender);
     event InboxSet(address inbox);

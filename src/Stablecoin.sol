@@ -43,7 +43,7 @@ contract Stablecoin is
 
     mapping(address minter => uint256 allowance) private _minterAllowances;
     // Frozen accounts
-    mapping(address => bool) public frozen;
+    mapping(address account => bool isFrozen) public frozen;
     // Token decimals
     uint8 private _decimals;
 
