@@ -13,7 +13,7 @@ import {TokenMintMessage} from "./TokenMintMessage.sol";
 /// @notice Application-level bridge entry point. Burns tokens from the user via burnFrom,
 /// then sends a message through the Outbox for the destination chain's BridgeMinter.
 contract BridgeBurner is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable, IBridgeBurner {
-    /// @notice Stablecoin to burn tokens from on `sendTo`.
+    /// @notice Target Stablecoin for sendTo burns
     Stablecoin public stablecoin;
     /// @notice Outbox that dispatches the cross-chain bridge message.
     IOutbox public outbox;

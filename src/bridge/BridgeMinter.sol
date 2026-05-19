@@ -12,7 +12,7 @@ import {TokenMintMessage} from "./TokenMintMessage.sol";
 /// @notice Application-level bridge exit point. Receives messages from the Inbox,
 /// validates the source chain and sender, then mints tokens to the recipient.
 contract BridgeMinter is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable, IMessageReceiver {
-    /// @notice Stablecoin to mint tokens on after a successful inbound message.
+    /// @notice Target Stablecoin for mints triggered by inbound messages.
     Stablecoin public stablecoin;
     /// @notice Inbox authorized to deliver messages to this minter (caller of handleMessage).
     address public inbox;

@@ -25,7 +25,7 @@ contract StablecoinV2 is Stablecoin {
         return "2.0.0";
     }
 
-    /// @notice Returns the configured supply cap. Note: not enforced by `_update` yet.
+    /// @notice Returns the configured supply cap.
     function maxSupply() public view returns (uint256) {
         return _maxSupply;
     }
