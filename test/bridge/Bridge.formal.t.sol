@@ -199,16 +199,21 @@ contract InboxFormalTest is FormalTestBase {
     ///
     /// The check `require(threshold > 0)` (Inbox L151) is the first check in
     /// _verifySignatures, so no signature can satisfy a zero threshold.
+    /// @dev `Inbox.setThreshold` now refuses `threshold_ == 0` (PR #4 invariant),
+    /// so we exercise the implicit zero state by deploying a fresh Inbox whose
+    /// `threshold` has never been set rather than calling `setThreshold(0)`.
     function check_zeroThresholdFailsClosed(bytes32 nonce) public {
-        vm.prank(ADMIN);
-        inbox.setThreshold(0);
+        Inbox freshInboxImpl = new Inbox();
+        ERC1967Proxy freshInboxProxy =
+            new ERC1967Proxy(address(freshInboxImpl), abi.encodeCall(Inbox.initialize, (ADMIN)));
+        Inbox freshInbox = Inbox(address(freshInboxProxy));
 
         bytes memory message = _encodeMessage(42, address(0xAAAA), block.chainid, address(receiver), nonce, hex"");
 
         // 130 zero bytes: passes length alignment but reaches the threshold check.
         bytes memory sigs = new bytes(130);
 
-        (bool success,) = address(inbox).call(abi.encodeCall(inbox.recvMessage, (message, sigs)));
+        (bool success,) = address(freshInbox).call(abi.encodeCall(freshInbox.recvMessage, (message, sigs)));
         assert(!success);
     }
 

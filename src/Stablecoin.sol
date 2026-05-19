@@ -363,11 +363,7 @@ contract Stablecoin is
     /// but `approve` and `_spendAllowance` do not route through `_update`, so without
     /// this override `approve()` (and the allowance bookkeeping inside `transferFrom` /
     /// `burnFrom`) could still mutate state during a pause.
-    function _approve(address owner, address spender, uint256 value, bool emitEvent)
-        internal
-        override
-        whenNotPaused
-    {
+    function _approve(address owner, address spender, uint256 value, bool emitEvent) internal override whenNotPaused {
         super._approve(owner, spender, value, emitEvent);
     }
 

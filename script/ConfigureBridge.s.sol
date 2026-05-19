@@ -84,7 +84,9 @@ contract ConfigureBridge is Script {
 
         uint256[] memory srcChains = vm.parseTomlUintArray(toml, ".bridge.allowed_senders.src_chain");
         address[] memory srcSenders = vm.parseTomlAddressArray(toml, ".bridge.allowed_senders.sender");
-        require(srcChains.length == srcSenders.length, AllowedSendersLengthMismatch(srcChains.length, srcSenders.length));
+        require(
+            srcChains.length == srcSenders.length, AllowedSendersLengthMismatch(srcChains.length, srcSenders.length)
+        );
 
         config.allowedSenders = new BridgeConfig.AllowedSender[](srcChains.length);
         for (uint256 i = 0; i < srcChains.length; i++) {
