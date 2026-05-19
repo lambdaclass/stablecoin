@@ -42,28 +42,39 @@ contract Stablecoin is
     AccessControlEnumerableUpgradeable,
     UUPSUpgradeable
 {
+    /// @notice Role that manages minters/allowances and authorizes UUPS upgrades.
     bytes32 public constant ADMIN_ROLE = keccak256("ADMIN_ROLE");
+    /// @notice Role authorized to burn tokens (own balance or via allowance).
     bytes32 public constant BURNER_ROLE = keccak256("BURNER_ROLE");
+    /// @notice Role authorized to freeze/unfreeze accounts.
     bytes32 public constant FREEZER_ROLE = keccak256("FREEZER_ROLE");
+    /// @notice Role authorized to mint tokens up to a per-minter allowance.
     bytes32 public constant MINTER_ROLE = keccak256("MINTER_ROLE");
+    /// @notice Role authorized to pause/unpause the contract.
     bytes32 public constant PAUSER_ROLE = keccak256("PAUSER_ROLE");
 
+    /// @dev Per-minter mint allowance, decremented on each mint().
     mapping(address minter => uint256 allowance) private _minterAllowances;
-    // Frozen accounts
+    /// @notice Accounts blocked from sending, receiving, or operating on token transfers.
     mapping(address account => bool isFrozen) public frozen;
-    // Token decimals
+    /// @dev Token decimals captured at initialize and returned by `decimals()`.
     uint8 private _decimals;
 
-    // Struct for returning minter information
+    /// @notice Pair returned by `getAllMinters()` describing a minter and its remaining allowance.
     struct MinterInfo {
         address minter;
         uint256 allowance;
     }
 
+    /// @notice Emitted when `minter` is added with the initial `allowance`.
     event MinterAdded(address indexed minter, uint256 allowance);
+    /// @notice Emitted when `minter` is revoked.
     event MinterRemoved(address indexed minter);
+    /// @notice Emitted when `minter`'s allowance is updated from `oldAllowance` to `newAllowance`.
     event MinterAllowanceChanged(address indexed minter, uint256 oldAllowance, uint256 newAllowance);
+    /// @notice Emitted when `account` is frozen.
     event AccountFrozen(address indexed account);
+    /// @notice Emitted when `account` is unfrozen.
     event AccountUnfrozen(address indexed account);
 
     error ZeroAddress(bytes32 role);
@@ -176,6 +187,9 @@ contract Stablecoin is
         _setRoleAdmin(ADMIN_ROLE, ADMIN_ROLE);
     }
 
+    /// @notice Returns the token decimals captured at initialize() time.
+    /// @dev Overrides ERC20Upgradeable's hard-coded 18; the value is fixed at proxy
+    /// initialization and cannot be changed post-deployment.
     function decimals() public view override returns (uint8) {
         return _decimals;
     }
