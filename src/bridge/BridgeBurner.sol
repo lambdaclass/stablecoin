@@ -24,7 +24,7 @@ contract BridgeBurner is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable
     event StablecoinSet(address stablecoin);
 
     error DstMinterNotSet(uint256 dstChain);
-    error ZeroAddress();
+    error ZeroAddress(bytes32 field);
     error ZeroRecipient();
     error ZeroAmount();
     error SameChain();
@@ -39,8 +39,8 @@ contract BridgeBurner is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable
     /// @param stablecoin_ Address of the stablecoin contract to burn tokens from.
     /// @param outbox_ Address of the Outbox contract used to send cross-chain messages.
     function initialize(address owner_, address stablecoin_, address outbox_) public initializer {
-        require(stablecoin_ != address(0), ZeroAddress());
-        require(outbox_ != address(0), ZeroAddress());
+        require(stablecoin_ != address(0), ZeroAddress("stablecoin"));
+        require(outbox_ != address(0), ZeroAddress("outbox"));
         __Ownable_init(owner_);
         stablecoin = Stablecoin(stablecoin_);
         outbox = IOutbox(outbox_);
@@ -55,7 +55,7 @@ contract BridgeBurner is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable
     /// @notice Update the Outbox contract reference.
     /// @param outbox_ Address of the new Outbox contract.
     function setOutbox(address outbox_) external onlyOwner {
-        require(outbox_ != address(0), ZeroAddress());
+        require(outbox_ != address(0), ZeroAddress("outbox"));
         outbox = IOutbox(outbox_);
         emit OutboxSet(outbox_);
     }
@@ -63,7 +63,7 @@ contract BridgeBurner is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable
     /// @notice Update the stablecoin contract reference.
     /// @param stablecoin_ Address of the new stablecoin contract.
     function setStablecoin(address stablecoin_) external onlyOwner {
-        require(stablecoin_ != address(0), ZeroAddress());
+        require(stablecoin_ != address(0), ZeroAddress("stablecoin"));
         stablecoin = Stablecoin(stablecoin_);
         emit StablecoinSet(stablecoin_);
     }
