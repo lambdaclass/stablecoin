@@ -223,6 +223,54 @@ contract InboxTest is BridgeTestBase {
         }
     }
 
+    // ─── Threshold / attestor-count invariant (S-4 / #24) ───────────
+
+    function test_SetThresholdRejectsZero() public {
+        vm.prank(ADMIN);
+        vm.expectRevert(abi.encodeWithSelector(Inbox.InvalidThreshold.selector, 0, 3));
+        bridge.inbox.setThreshold(0);
+    }
+
+    function test_SetThresholdRejectsValueAboveAttestorCount() public {
+        // 3 attestors are configured in setUp; threshold 4 is unsatisfiable.
+        vm.prank(ADMIN);
+        vm.expectRevert(abi.encodeWithSelector(Inbox.InvalidThreshold.selector, 4, 3));
+        bridge.inbox.setThreshold(4);
+    }
+
+    function test_SetThresholdAcceptsExactlyAttestorCount() public {
+        // Boundary: threshold == attestorCount must succeed.
+        vm.prank(ADMIN);
+        bridge.inbox.setThreshold(3);
+        assertEq(bridge.inbox.threshold(), 3);
+    }
+
+    function test_RemoveAttestorRejectedIfDropsBelowThreshold() public {
+        // Raise threshold to the attestor count so any removal violates the invariant.
+        vm.prank(ADMIN);
+        bridge.inbox.setThreshold(3);
+
+        vm.prank(ADMIN);
+        vm.expectRevert(abi.encodeWithSelector(Inbox.InvalidThreshold.selector, 3, 2));
+        bridge.inbox.removeAttestor(attestor2);
+
+        // Set is unchanged.
+        assertEq(bridge.inbox.getAttestorCount(), 3);
+        assertTrue(bridge.inbox.isAttestor(attestor2));
+    }
+
+    function test_RemoveAttestorAcceptedAtThresholdBoundary() public {
+        // Start: 3 attestors, threshold 2. Remove one: 2 attestors, still >= threshold.
+        vm.prank(ADMIN);
+        bridge.inbox.removeAttestor(attestor3);
+        assertEq(bridge.inbox.getAttestorCount(), 2);
+
+        // Removing another would drop below threshold and must revert.
+        vm.prank(ADMIN);
+        vm.expectRevert(abi.encodeWithSelector(Inbox.InvalidThreshold.selector, 2, 1));
+        bridge.inbox.removeAttestor(attestor2);
+    }
+
     // ─── Invalid signature length ────────────────────────────────────
 
     function test_InvalidSignatureLengthReverts() public {

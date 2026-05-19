@@ -50,6 +50,7 @@ contract Inbox is
     error ZeroAddress();
     error AlreadyAttestor(address attestor);
     error NotAttestor(address attestor);
+    error InvalidThreshold(uint256 threshold, uint256 attestorCount);
 
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
@@ -94,20 +95,24 @@ contract Inbox is
     }
 
     /// @notice Remove an address from the attestor set.
-    /// @dev WARNING: if removing this attestor leaves fewer active attestors than the current
-    /// threshold, all message delivery will be blocked until the threshold is lowered or new
-    /// attestors are added.
+    /// @dev Rejects the removal if it would leave fewer active attestors than the current
+    /// threshold. The owner must lower `threshold` first (via setThreshold) before pruning
+    /// the set below it.
     /// @param attestor Address to remove. Must be a current attestor.
     function removeAttestor(address attestor) external onlyOwner {
         require(_attestors.remove(attestor), NotAttestor(attestor));
+        uint256 newCount = _attestors.length();
+        require(newCount >= threshold, InvalidThreshold(threshold, newCount));
         emit AttestorRemoved(attestor);
     }
 
     /// @notice Update the minimum number of attestor signatures required to deliver a message.
-    /// @dev WARNING: a threshold of 0 or higher than the number of active attestors will cause
-    /// all message delivery to be rejected until the threshold is updated.
+    /// @dev Enforces `0 < threshold_ <= attestorCount` so the new threshold is always
+    /// satisfiable by the current attestor set.
     /// @param threshold_ New threshold value.
     function setThreshold(uint256 threshold_) external onlyOwner {
+        uint256 attestorCount = _attestors.length();
+        require(threshold_ > 0 && threshold_ <= attestorCount, InvalidThreshold(threshold_, attestorCount));
         threshold = threshold_;
         emit ThresholdSet(threshold_);
     }
