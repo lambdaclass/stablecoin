@@ -160,16 +160,25 @@ contract Stablecoin is
     /// @dev Revokes MINTER_ROLE and clears the minting allowance atomically.
     /// _revokeRole returns false when the role was not held, so the pre-check via
     /// hasRole is redundant.
-    function removeMinter(address minter) public onlyRole(ADMIN_ROLE) whenNotPaused {
+    ///
+    /// Available while paused so an emergency response (pause) does not block emergency
+    /// revocation of a suspected-compromised minter. Token movements are still blocked
+    /// by `_update`'s pause check, so this does not open a new token-flow path.
+    function removeMinter(address minter) public onlyRole(ADMIN_ROLE) {
         require(_revokeRole(MINTER_ROLE, minter), "Minter does not exist");
         delete _minterAllowances[minter];
         emit MinterRemoved(minter);
     }
 
     /// @dev Updates the minting allowance for an existing minter without changing their role.
-    function modifyMinterAllowance(address minter, uint256 allowance) public onlyRole(ADMIN_ROLE) whenNotPaused {
+    ///
+    /// While paused, only reductions (new <= current) are accepted, so the admin can de-risk
+    /// a compromised minter without an unpause-window race, but cannot raise allowances until
+    /// the contract is unpaused.
+    function modifyMinterAllowance(address minter, uint256 allowance) public onlyRole(ADMIN_ROLE) {
         require(hasRole(MINTER_ROLE, minter), "Minter does not exist");
         uint256 oldAllowance = _minterAllowances[minter];
+        require(!paused() || allowance <= oldAllowance, "Cannot increase allowance while paused");
         _minterAllowances[minter] = allowance;
         emit MinterAllowanceChanged(minter, oldAllowance, allowance);
     }
