@@ -18,7 +18,7 @@ contract BridgeBurner is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable
     IOutbox public outbox;
 
     /// @notice Per-destination-chain minter address (the BridgeMinter on that chain).
-    mapping(uint256 => address) public dstMinters;
+    mapping(uint256 dstChain => address minter) public dstMinters;
 
     event DstMinterSet(uint256 indexed dstChain, address minter);
     event OutboxSet(address outbox);
