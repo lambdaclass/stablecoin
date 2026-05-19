@@ -71,6 +71,21 @@ contract Stablecoin is
     /// upgrade authorization all become permanently unreachable.
     error AdminRoleCannotBeEmpty();
 
+    /// @dev Reverts when a revoke or renounce of ADMIN_ROLE targets an address
+    /// that does not currently hold the role. Without this guard, OZ's
+    /// `_revokeRole` returns `false` silently with no event — indistinguishable
+    /// from success at the caller. Critical for timelock-gated revocations
+    /// where the operator would otherwise burn the `minDelay` window only to
+    /// discover the revoke was a no-op on a typo'd address.
+    error NotAnAdmin(address account);
+
+    /// @dev Reverts when `_authorizeUpgrade` is reached with an implementation
+    /// address that has no bytecode. UUPSUpgradeable's `proxiableUUID` staticcall
+    /// would also fail downstream, but this earlier check produces a typed
+    /// revert and closes the path where a raw timelock `schedule(...)` call
+    /// bypasses the timelock helper's input validation.
+    error NotAContract(address impl);
+
     modifier whenNotFrozen(address account) {
         _whenNotFrozen(account);
         _;
@@ -278,22 +293,31 @@ contract Stablecoin is
     }
 
     /// @dev UUPS upgrade authorization — only ADMIN_ROLE can upgrade the implementation.
-    function _authorizeUpgrade(address newImplementation) internal override onlyRole(ADMIN_ROLE) {}
+    /// Also rejects non-contract implementations so a fat-fingered EOA or
+    /// `address(0)` cannot reach the `proxiableUUID` step (closes the raw
+    /// `timelock.schedule(...)` bypass of `StablecoinTimelock.scheduleUpgrade`).
+    function _authorizeUpgrade(address newImplementation) internal override onlyRole(ADMIN_ROLE) {
+        if (newImplementation.code.length == 0) revert NotAContract(newImplementation);
+    }
 
     function _whenNotFrozen(address account) internal view {
         require(!frozen[account], "Frozen account");
     }
 
     /// @dev Centralized revoke hook for both `revokeRole` and `renounceRole`.
-    /// Refuses to remove the last remaining holder of ADMIN_ROLE, since ADMIN_ROLE
-    /// is its own admin (a zero-admin state is unrecoverable on-chain).
+    /// For ADMIN_ROLE: rejects revocations targeting a non-holder (closes OZ's
+    /// silent-no-op path, which would otherwise mask a typo'd address after a
+    /// matured timelock window) and refuses to remove the last remaining
+    /// holder (ADMIN_ROLE is its own admin, so a zero-admin state is
+    /// unrecoverable on-chain). For other roles, behaves like OZ.
     function _revokeRole(bytes32 role, address account)
         internal
         override(AccessControlEnumerableUpgradeable)
         returns (bool)
     {
-        if (role == ADMIN_ROLE && hasRole(ADMIN_ROLE, account) && getRoleMemberCount(ADMIN_ROLE) == 1) {
-            revert AdminRoleCannotBeEmpty();
+        if (role == ADMIN_ROLE) {
+            if (!hasRole(ADMIN_ROLE, account)) revert NotAnAdmin(account);
+            if (getRoleMemberCount(ADMIN_ROLE) == 1) revert AdminRoleCannotBeEmpty();
         }
         return super._revokeRole(role, account);
     }

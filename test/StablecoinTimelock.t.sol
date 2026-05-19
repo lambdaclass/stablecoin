@@ -144,12 +144,22 @@ contract StablecoinTimelockTest is Test {
     // ============ scheduleRevokeAdmin ============
 
     function test_RevokeAdminCalldataMatchesManual() public {
+        // Grant a second admin first — scheduleRevokeAdmin now requires a positive role
+        // check at schedule time, so the target must actually hold ADMIN_ROLE (see C1).
+        address otherAdmin = address(0xAD1);
+        bytes32 grantSalt = bytes32(uint256(100));
+        bytes memory grantData = _adminCalldata(otherAdmin);
+        vm.prank(PROPOSER);
+        timelock.scheduleGrantAdmin(otherAdmin, grantSalt, DELAY);
+        vm.warp(block.timestamp + DELAY + 1);
+        timelock.execute(address(stablecoin), 0, grantData, bytes32(0), grantSalt);
+
         bytes32 salt = bytes32(uint256(3));
-        bytes memory expected = _revokeAdminCalldata(address(0xAD1));
+        bytes memory expected = _revokeAdminCalldata(otherAdmin);
         bytes32 manualId = timelock.hashOperation(address(stablecoin), 0, expected, bytes32(0), salt);
 
         vm.prank(PROPOSER);
-        timelock.scheduleRevokeAdmin(address(0xAD1), salt, DELAY);
+        timelock.scheduleRevokeAdmin(otherAdmin, salt, DELAY);
 
         assertTrue(timelock.isOperation(manualId));
     }
@@ -283,7 +293,8 @@ contract StablecoinTimelockTest is Test {
     // ============ scheduleUpgrade ============
 
     function test_UpgradeCalldataMatchesManual() public {
-        address newImpl = address(0xCAFEBABE);
+        // Use a real deployed contract — scheduleUpgrade rejects non-contracts at schedule time (see I1).
+        address newImpl = address(new Stablecoin());
         bytes32 salt = bytes32(uint256(14));
         bytes memory expected = _upgradeCalldata(newImpl, "");
         bytes32 manualId = timelock.hashOperation(address(stablecoin), 0, expected, bytes32(0), salt);
@@ -433,7 +444,9 @@ contract StablecoinTimelockTest is Test {
     function test_E2E_RevokeLastAdminRevertsThroughTimelock() public {
         // Timelock is the only admin (per setUp). Scheduling revokeAdmin(timelock) is fine —
         // the timelock just queues calldata. Execution must revert with the stablecoin's
-        // AdminRoleCannotBeEmpty guard.
+        // AdminRoleCannotBeEmpty guard. OZ's TimelockController bubbles the raw inner
+        // revert via Address.verifyCallResult, so the selector match catches the
+        // exact error path and would notice a regression that swapped the cause.
         bytes32 salt = bytes32(uint256(24));
         bytes memory data = _revokeAdminCalldata(address(timelock));
 
@@ -441,7 +454,7 @@ contract StablecoinTimelockTest is Test {
         timelock.scheduleRevokeAdmin(address(timelock), salt, DELAY);
 
         vm.warp(block.timestamp + DELAY + 1);
-        vm.expectRevert();
+        vm.expectRevert(Stablecoin.AdminRoleCannotBeEmpty.selector);
         timelock.execute(address(stablecoin), 0, data, bytes32(0), salt);
 
         assertTrue(stablecoin.hasRole(stablecoin.ADMIN_ROLE(), address(timelock)));
@@ -451,7 +464,8 @@ contract StablecoinTimelockTest is Test {
     // ============ scheduleUpgrade forwards reinitializer data verbatim ============
 
     function test_ScheduleUpgradeWithReinitializerDataCalldataMatchesManual() public {
-        address newImpl = address(0xCAFEBABE);
+        // Use a real deployed contract — scheduleUpgrade rejects non-contracts at schedule time (see I1).
+        address newImpl = address(new Stablecoin());
         bytes memory reinitCall = abi.encodeWithSignature("reinitialize(uint8)", uint8(2));
         bytes32 salt = bytes32(uint256(25));
 
@@ -508,5 +522,123 @@ contract StablecoinTimelockTest is Test {
         vm.prank(nonProposer);
         vm.expectRevert(expectedError);
         timelock.scheduleGrantAdmin(address(0xAD1), salt, DELAY);
+    }
+
+    // ============ scheduleUpgrade input validation (I1) ============
+
+    /// @notice Scheduling an upgrade to an EOA / unallocated address must revert
+    /// at schedule time so the proposer doesn't burn a full minDelay window
+    /// before discovering the implementation has no code.
+    function test_ScheduleUpgradeRevertsOnNonContractImplementation() public {
+        address nonContract = address(0xCAFEBABE);
+        assertEq(nonContract.code.length, 0, "precondition: address must have no code");
+        bytes32 salt = bytes32(uint256(28));
+
+        vm.prank(PROPOSER);
+        vm.expectRevert(abi.encodeWithSelector(StablecoinTimelock.NotAContract.selector, nonContract));
+        timelock.scheduleUpgrade(nonContract, "", salt, DELAY);
+    }
+
+    function test_ScheduleUpgradeRevertsOnZeroAddressImplementation() public {
+        bytes32 salt = bytes32(uint256(29));
+
+        vm.prank(PROPOSER);
+        vm.expectRevert(abi.encodeWithSelector(StablecoinTimelock.NotAContract.selector, address(0)));
+        timelock.scheduleUpgrade(address(0), "", salt, DELAY);
+    }
+
+    function test_ScheduleUpgradeAcceptsRealContract() public {
+        Stablecoin newImpl = new Stablecoin();
+        bytes32 salt = bytes32(uint256(30));
+
+        vm.prank(PROPOSER);
+        timelock.scheduleUpgrade(address(newImpl), "", salt, DELAY);
+
+        bytes memory data = _upgradeCalldata(address(newImpl), "");
+        bytes32 opId = timelock.hashOperation(address(stablecoin), 0, data, bytes32(0), salt);
+        assertTrue(timelock.isOperation(opId));
+    }
+
+    // ============ scheduleRevokeAdmin input validation (C1) ============
+
+    /// @notice Scheduling a revoke against an address that doesn't hold ADMIN_ROLE
+    /// must revert at schedule time. Otherwise the operator burns a full minDelay
+    /// window only to discover the revoke silently no-ops at execute time.
+    function test_ScheduleRevokeAdminRevertsOnNonAdmin() public {
+        address typo = address(0xBADBAD);
+        assertFalse(stablecoin.hasRole(stablecoin.ADMIN_ROLE(), typo), "precondition: must not be admin");
+        bytes32 salt = bytes32(uint256(31));
+
+        vm.prank(PROPOSER);
+        vm.expectRevert(abi.encodeWithSelector(StablecoinTimelock.NotAnAdmin.selector, typo));
+        timelock.scheduleRevokeAdmin(typo, salt, DELAY);
+    }
+
+    function test_ScheduleRevokeAdminRevertsOnZeroAddress() public {
+        bytes32 salt = bytes32(uint256(32));
+
+        vm.prank(PROPOSER);
+        vm.expectRevert(abi.encodeWithSelector(StablecoinTimelock.NotAnAdmin.selector, address(0)));
+        timelock.scheduleRevokeAdmin(address(0), salt, DELAY);
+    }
+
+    function test_ScheduleRevokeAdminAcceptsExistingAdmin() public {
+        // First grant a second admin so revoking is allowed by the last-admin guard.
+        address otherAdmin = address(0xAD1);
+        bytes32 grantSalt = bytes32(uint256(33));
+        bytes memory grantData = _adminCalldata(otherAdmin);
+        vm.prank(PROPOSER);
+        timelock.scheduleGrantAdmin(otherAdmin, grantSalt, DELAY);
+        vm.warp(block.timestamp + DELAY + 1);
+        timelock.execute(address(stablecoin), 0, grantData, bytes32(0), grantSalt);
+        assertTrue(stablecoin.hasRole(stablecoin.ADMIN_ROLE(), otherAdmin));
+
+        // Now scheduling a revoke against the real admin must succeed at schedule time.
+        bytes32 revokeSalt = bytes32(uint256(34));
+        vm.prank(PROPOSER);
+        timelock.scheduleRevokeAdmin(otherAdmin, revokeSalt, DELAY);
+
+        bytes memory revokeData = _revokeAdminCalldata(otherAdmin);
+        bytes32 opId = timelock.hashOperation(address(stablecoin), 0, revokeData, bytes32(0), revokeSalt);
+        assertTrue(timelock.isOperation(opId));
+    }
+
+    // ============ raw schedule() bypass — defense in depth at the Stablecoin layer ============
+    //
+    // The typed helpers (scheduleRevokeAdmin / scheduleUpgrade) catch typos at schedule time.
+    // A proposer can still bypass them by calling raw `timelock.schedule(target, value, data, ...)`
+    // with the same calldata. The Stablecoin contract itself enforces the same invariants
+    // at execute time, so the silent no-op stays closed even on the raw path.
+
+    function test_RawScheduleRevokeAdminWithNonAdminRevertsAtExecuteTime() public {
+        address typo = address(0xBADBAD);
+        assertFalse(stablecoin.hasRole(stablecoin.ADMIN_ROLE(), typo), "precondition: must not be admin");
+
+        bytes memory data = _revokeAdminCalldata(typo);
+        bytes32 salt = bytes32(uint256(35));
+
+        // Bypass the helper — go straight to the inherited schedule().
+        vm.prank(PROPOSER);
+        timelock.schedule(address(stablecoin), 0, data, bytes32(0), salt, DELAY);
+
+        vm.warp(block.timestamp + DELAY + 1);
+        vm.expectRevert(abi.encodeWithSelector(Stablecoin.NotAnAdmin.selector, typo));
+        timelock.execute(address(stablecoin), 0, data, bytes32(0), salt);
+    }
+
+    function test_RawScheduleUpgradeWithNonContractRevertsAtExecuteTime() public {
+        address nonContract = address(0xCAFEBABE);
+        assertEq(nonContract.code.length, 0, "precondition: address must have no code");
+
+        bytes memory data = _upgradeCalldata(nonContract, "");
+        bytes32 salt = bytes32(uint256(36));
+
+        // Bypass the helper — go straight to the inherited schedule().
+        vm.prank(PROPOSER);
+        timelock.schedule(address(stablecoin), 0, data, bytes32(0), salt, DELAY);
+
+        vm.warp(block.timestamp + DELAY + 1);
+        vm.expectRevert(abi.encodeWithSelector(Stablecoin.NotAContract.selector, nonContract));
+        timelock.execute(address(stablecoin), 0, data, bytes32(0), salt);
     }
 }

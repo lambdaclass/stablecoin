@@ -550,6 +550,33 @@ contract StablecoinTest is Test {
         assertEq(stablecoin.getRoleMemberCount(adminRole), 1);
     }
 
+    /// @dev Direct (non-timelock) revoke of ADMIN_ROLE on a non-holder must
+    /// revert with `NotAnAdmin`. Closes OZ's silent-no-op path at the source,
+    /// independent of any timelock helper.
+    function test_RevokeAdminOnNonHolderReverts() public {
+        bytes32 adminRole = stablecoin.ADMIN_ROLE();
+        address nonHolder = address(0xBADBAD);
+        assertFalse(stablecoin.hasRole(adminRole, nonHolder));
+
+        vm.prank(ADMIN);
+        vm.expectRevert(abi.encodeWithSelector(Stablecoin.NotAnAdmin.selector, nonHolder));
+        stablecoin.revokeRole(adminRole, nonHolder);
+    }
+
+    /// @dev A non-admin self-renouncing ADMIN_ROLE previously silently no-op'd
+    /// (OZ's `_revokeRole` returned `false`). With the new guard it reverts
+    /// with `NotAnAdmin`. Exercises the `_revokeRole` path reached via
+    /// `renounceRole` rather than `revokeRole`.
+    function test_RenounceAdminByNonAdminReverts() public {
+        bytes32 adminRole = stablecoin.ADMIN_ROLE();
+        address nonAdmin = address(0xBADBAD);
+        assertFalse(stablecoin.hasRole(adminRole, nonAdmin));
+
+        vm.prank(nonAdmin);
+        vm.expectRevert(abi.encodeWithSelector(Stablecoin.NotAnAdmin.selector, nonAdmin));
+        stablecoin.renounceRole(adminRole, nonAdmin);
+    }
+
     function test_NonAdminCannotGrantAdminRole() public {
         bytes32 adminRole = stablecoin.ADMIN_ROLE();
         address nonAdmin = address(0xBADD);

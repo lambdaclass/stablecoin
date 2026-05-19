@@ -394,9 +394,10 @@ contract UpgradeStablecoinTest is Test {
         bytes memory reinitData = abi.encodeCall(StablecoinV2.initializeV2, (MAX_SUPPLY));
         address eoa = address(0xDEAD);
 
-        // UUPS calls proxiableUUID() on the target first, which reverts on a non-contract address
+        // Stablecoin._authorizeUpgrade rejects non-contract implementations with
+        // NotAContract before reaching UUPSUpgradeable's proxiableUUID staticcall.
         vm.prank(ADMIN);
-        vm.expectRevert();
+        vm.expectRevert(abi.encodeWithSelector(Stablecoin.NotAContract.selector, eoa));
         UUPSUpgradeable(proxy).upgradeToAndCall(eoa, reinitData);
     }
 

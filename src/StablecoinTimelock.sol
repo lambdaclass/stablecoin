@@ -34,6 +34,15 @@ contract StablecoinTimelock is TimelockController {
     error ZeroStablecoin();
     error DelayBelowDeployedFloor();
     error NoProposers();
+    /// @dev `scheduleUpgrade` was called with an implementation address that has
+    /// no bytecode. Surfaces at schedule time so the proposer doesn't burn the
+    /// `minDelay` window before discovering the typo at execute time.
+    error NotAContract(address impl);
+    /// @dev `scheduleRevokeAdmin` was called with an address that does not hold
+    /// `ADMIN_ROLE` on the bound stablecoin. Without this check OZ's
+    /// `_revokeRole` would silently return `false` at execute time after the
+    /// `minDelay` window had already elapsed.
+    error NotAnAdmin(address account);
 
     constructor(
         Stablecoin stablecoin_,
@@ -63,7 +72,13 @@ contract StablecoinTimelock is TimelockController {
     }
 
     /// @notice Schedules `revokeRole(ADMIN_ROLE, oldAdmin)` on the bound stablecoin.
+    /// @dev Rejects `oldAdmin` values that do not currently hold `ADMIN_ROLE`.
+    /// Without this guard a typo'd address would queue a call that OZ's
+    /// `_revokeRole` silently no-ops on at execute time, wasting the `minDelay`
+    /// window. Asymmetric with `removeMinter`, which already requires positive
+    /// existence; this brings the admin path in line.
     function scheduleRevokeAdmin(address oldAdmin, bytes32 salt, uint256 delay) external {
+        if (!stablecoin.hasRole(stablecoin.ADMIN_ROLE(), oldAdmin)) revert NotAnAdmin(oldAdmin);
         bytes memory data = abi.encodeCall(stablecoin.revokeRole, (stablecoin.ADMIN_ROLE(), oldAdmin));
         _scheduleStablecoinCall(data, salt, delay);
     }
@@ -89,7 +104,11 @@ contract StablecoinTimelock is TimelockController {
     /// @notice Schedules a UUPS `upgradeToAndCall(newImplementation, data)` on the
     /// bound stablecoin proxy. Use empty `data` for a pure implementation swap;
     /// pass ABI-encoded reinitializer calldata for staged migrations.
+    /// @dev Rejects `newImplementation` values with no bytecode (EOAs,
+    /// `address(0)`, never-deployed addresses). Without this guard a fat-finger
+    /// would only surface at execute time, wasting the `minDelay` window.
     function scheduleUpgrade(address newImplementation, bytes calldata data, bytes32 salt, uint256 delay) external {
+        if (newImplementation.code.length == 0) revert NotAContract(newImplementation);
         bytes memory payload = abi.encodeCall(UUPSUpgradeable.upgradeToAndCall, (newImplementation, data));
         _scheduleStablecoinCall(payload, salt, delay);
     }
