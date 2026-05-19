@@ -12,6 +12,7 @@ import {Stablecoin} from "../Stablecoin.sol";
 /// Subclasses that want a real cap must override `_update` (or the internal hook) to revert
 /// when `totalSupply() > _maxSupply`.
 /// @custom:oz-upgrades-from Stablecoin
+/// @custom:security-contact security@lambdaclass.com
 contract StablecoinV2 is Stablecoin {
     /// @dev New storage slot appended after V1 layout (slot 4+).
     uint256 private _maxSupply;

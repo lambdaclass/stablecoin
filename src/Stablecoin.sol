@@ -33,6 +33,8 @@ import {SignedMath} from "@openzeppelin/contracts/utils/math/SignedMath.sol";
  *  - BURNER_ROLE: Can burn tokens from own balance or via allowance (burnFrom).
  *  - PAUSER_ROLE: Can pause/unpause all token operations.
  *  - FREEZER_ROLE: Can freeze/unfreeze individual accounts.
+ *
+ * @custom:security-contact security@lambdaclass.com
  */
 contract Stablecoin is
     Initializable,

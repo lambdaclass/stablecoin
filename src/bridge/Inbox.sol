@@ -14,6 +14,7 @@ import {IMessageReceiver} from "./interfaces/IMessageReceiver.sol";
 /// @title Inbox
 /// @notice Generic message inbox with k-of-n EIP-712 attestor verification, nonce replay protection,
 /// and message delivery to receiver contracts.
+/// @custom:security-contact security@lambdaclass.com
 contract Inbox is
     Initializable,
     Ownable2StepUpgradeable,

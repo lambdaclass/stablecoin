@@ -3,6 +3,7 @@ pragma solidity =0.8.30;
 
 /// @title TokenMintMessage
 /// @notice Encodes and decodes the application-level bridge payload (recipient + amount).
+/// @custom:security-contact security@lambdaclass.com
 library TokenMintMessage {
     /// @notice ABI-encode a mint payload.
     /// @param recipient Address that will receive the minted tokens.
