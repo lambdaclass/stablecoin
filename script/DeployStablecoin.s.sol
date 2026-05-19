@@ -27,9 +27,8 @@ contract DeployStablecoin is Script {
         require(pauser != address(0), PauserIsZeroAddress());
         require(freezer != address(0), FreezerIsZeroAddress());
 
-        bytes memory initializerData = abi.encodeCall(
-            Stablecoin.initialize, (name, symbol, decimals, admin, burner, pauser, freezer)
-        );
+        bytes memory initializerData =
+            abi.encodeCall(Stablecoin.initialize, (name, symbol, decimals, admin, burner, pauser, freezer));
 
         vm.startBroadcast();
         address stablecoin = Upgrades.deployUUPSProxy("Stablecoin.sol", initializerData);
