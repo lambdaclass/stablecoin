@@ -28,7 +28,7 @@ contract BridgeBurner is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable
     event StablecoinChanged(address indexed previousStablecoin, address indexed newStablecoin);
 
     error DstMinterNotSet(uint256 dstChain);
-    error ZeroAddress();
+    error ZeroAddress(bytes32 field);
     error ZeroRecipient();
     error ZeroAmount();
     error SameChain();
@@ -82,7 +82,7 @@ contract BridgeBurner is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable
     /// `InvalidOutbox` rather than the lower-level "call to non-contract address"
     /// revert solc emits for external calls into accounts with no code.
     function _validateOutbox(address outbox_) internal view {
-        require(outbox_ != address(0), ZeroAddress());
+        require(outbox_ != address(0), ZeroAddress("outbox"));
         require(outbox_.code.length > 0, InvalidOutbox(outbox_));
         try IERC165(outbox_).supportsInterface(type(IOutbox).interfaceId) returns (bool ok) {
             require(ok, InvalidOutbox(outbox_));
@@ -106,7 +106,7 @@ contract BridgeBurner is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable
     /// matching Stablecoin shape on the wrong chain still passes. Cross-chain wiring
     /// correctness must be verified out-of-band before bridging real value.
     function setStablecoin(address stablecoin_) external onlyOwner {
-        require(stablecoin_ != address(0), ZeroAddress());
+        require(stablecoin_ != address(0), ZeroAddress("stablecoin"));
         _requireStablecoinShape(stablecoin_);
         address previous = address(stablecoin);
         stablecoin = Stablecoin(stablecoin_);

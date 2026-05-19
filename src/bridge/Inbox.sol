@@ -50,7 +50,7 @@ contract Inbox is
     error SignerNotAttestor(address signer);
     error NonceAlreadyUsed(bytes32 nonce);
     error WrongDestinationChain(uint256 expected, uint256 actual);
-    error ZeroAddress();
+    error ZeroAddress(bytes32 field);
     error AlreadyAttestor(address attestor);
     error NotAttestor(address attestor);
     error InvalidThreshold(uint256 threshold, uint256 attestorCount);
@@ -92,7 +92,7 @@ contract Inbox is
     /// @notice Add an address to the attestor set.
     /// @param attestor Address to add. Must not be zero or already an attestor.
     function addAttestor(address attestor) external onlyOwner {
-        require(attestor != address(0), ZeroAddress());
+        require(attestor != address(0), ZeroAddress("attestor"));
         require(_attestors.add(attestor), AlreadyAttestor(attestor));
         emit AttestorAdded(attestor);
     }

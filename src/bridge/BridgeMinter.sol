@@ -28,7 +28,7 @@ contract BridgeMinter is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable
 
     error OnlyInbox();
     error DisallowedSender(uint256 srcChain, address srcSender);
-    error ZeroAddress();
+    error ZeroAddress(bytes32 field);
     error StablecoinNotSet();
     /// @notice Thrown by `setStablecoin` when the target address does not expose the
     /// Stablecoin shape (no `BURNER_ROLE()` accessor returning the canonical constant).
@@ -49,7 +49,7 @@ contract BridgeMinter is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable
     /// @param owner_ Address that will own the contract (can configure and upgrade).
     /// @param inbox_ Address of the Inbox contract authorized to deliver messages.
     function initialize(address owner_, address inbox_) public initializer {
-        require(inbox_ != address(0), ZeroAddress());
+        require(inbox_ != address(0), ZeroAddress("inbox"));
         __Ownable_init(owner_);
         inbox = inbox_;
     }
@@ -63,7 +63,7 @@ contract BridgeMinter is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable
     /// @notice Update the Inbox contract reference.
     /// @param inbox_ Address of the new Inbox contract.
     function setInbox(address inbox_) external onlyOwner {
-        require(inbox_ != address(0), ZeroAddress());
+        require(inbox_ != address(0), ZeroAddress("inbox"));
         inbox = inbox_;
         emit InboxSet(inbox_);
     }
@@ -83,7 +83,7 @@ contract BridgeMinter is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable
     /// matching Stablecoin shape on the wrong chain still passes. Cross-chain wiring
     /// correctness must be verified out-of-band before bridging real value.
     function setStablecoin(address stablecoin_) external onlyOwner {
-        require(stablecoin_ != address(0), ZeroAddress());
+        require(stablecoin_ != address(0), ZeroAddress("stablecoin"));
         _requireStablecoinShape(stablecoin_);
         address previous = address(stablecoin);
         stablecoin = Stablecoin(stablecoin_);
