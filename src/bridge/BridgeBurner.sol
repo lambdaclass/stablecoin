@@ -22,7 +22,10 @@ contract BridgeBurner is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable
 
     event DstMinterSet(uint256 indexed dstChain, address minter);
     event OutboxSet(address outbox);
-    event StablecoinSet(address stablecoin);
+    /// @notice Emitted when the stablecoin reference is set or replaced.
+    /// @dev `previousStablecoin == address(0)` on the initial wiring after deployment;
+    /// any subsequent emission represents a swap and should be alerted on by operators.
+    event StablecoinChanged(address indexed previousStablecoin, address indexed newStablecoin);
 
     error DstMinterNotSet(uint256 dstChain);
     error ZeroAddress();
@@ -30,6 +33,10 @@ contract BridgeBurner is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable
     error ZeroAmount();
     error SameChain();
     error InvalidOutbox(address outbox);
+    error StablecoinNotSet();
+    /// @notice Thrown by `setStablecoin` when the target address does not expose the
+    /// Stablecoin shape (no `BURNER_ROLE()` accessor returning the canonical constant).
+    error NotAStablecoin(address target);
 
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
@@ -37,14 +44,17 @@ contract BridgeBurner is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable
     }
 
     /// @notice Initialize the BridgeBurner proxy.
+    /// @dev The stablecoin address is intentionally NOT a parameter here: encoding a
+    /// per-chain stablecoin address into the proxy creation bytecode would make the
+    /// BridgeBurner's CREATE2 address chain-dependent, breaking the deterministic
+    /// "same address across every EVM chain" invariant that BridgeDeploy provides.
+    /// The owner MUST call `setStablecoin` immediately after deployment; until then
+    /// `sendTo` reverts with `StablecoinNotSet`.
     /// @param owner_ Address that will own the contract (can configure and upgrade).
-    /// @param stablecoin_ Address of the stablecoin contract to burn tokens from.
     /// @param outbox_ Address of the Outbox contract used to send cross-chain messages.
-    function initialize(address owner_, address stablecoin_, address outbox_) public initializer {
-        require(stablecoin_ != address(0), ZeroAddress());
+    function initialize(address owner_, address outbox_) public initializer {
         _validateOutbox(outbox_);
         __Ownable_init(owner_);
-        stablecoin = Stablecoin(stablecoin_);
         outbox = IOutbox(outbox_);
     }
 
@@ -81,16 +91,48 @@ contract BridgeBurner is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable
         }
     }
 
-    /// @notice Update the stablecoin contract reference.
+    /// @notice Set or replace the stablecoin contract reference.
+    /// @dev SENSITIVE MAINTENANCE OPERATION. Replacing a non-zero `stablecoin` while
+    /// the bridge is live can route inflight inbound mints (already burned on the
+    /// source chain) into a different token. Operators MUST pause cross-chain
+    /// activity (this chain's Outbox AND every counterpart chain's Inbox) and let
+    /// the attestor flow drain before swapping. The accidental-overwrite case is
+    /// also detectable: `StablecoinChanged` carries the previous address, so any
+    /// emission with `previousStablecoin != 0` should trigger an operator alert.
     /// @param stablecoin_ Address of the new stablecoin contract.
+    /// @dev Performs a shape probe (`BURNER_ROLE()` returns the canonical constant) to
+    /// catch the most common operator mistakes: pasting an EOA, a wrong-contract address,
+    /// or an undeployed CREATE2 target. This is NOT a cross-chain identity check — a
+    /// matching Stablecoin shape on the wrong chain still passes. Cross-chain wiring
+    /// correctness must be verified out-of-band before bridging real value.
     function setStablecoin(address stablecoin_) external onlyOwner {
         require(stablecoin_ != address(0), ZeroAddress());
+        _requireStablecoinShape(stablecoin_);
+        address previous = address(stablecoin);
         stablecoin = Stablecoin(stablecoin_);
-        emit StablecoinSet(stablecoin_);
+        emit StablecoinChanged(previous, stablecoin_);
+    }
+
+    /// @dev Reverts if `target` is not a Stablecoin-shaped contract. The explicit
+    /// `code.length` check is required because Solidity 0.8.x's compiler-inserted
+    /// extcodesize check sits AROUND the external call (not inside it), so a call to
+    /// an EOA reverts with "call to non-contract address" that try/catch does NOT
+    /// catch. Once the codesize check passes, the try/catch handles the remaining
+    /// failure modes: a contract that lacks `BURNER_ROLE()` (call reverts → catch
+    /// branch) and a contract whose `BURNER_ROLE()` returns the wrong value (require
+    /// branch in the success arm).
+    function _requireStablecoinShape(address target) private view {
+        require(target.code.length > 0, NotAStablecoin(target));
+        try Stablecoin(target).BURNER_ROLE() returns (bytes32 role) {
+            require(role == keccak256("BURNER_ROLE"), NotAStablecoin(target));
+        } catch {
+            revert NotAStablecoin(target);
+        }
     }
 
     /// @inheritdoc IBridgeBurner
     function sendTo(uint256 dstChain, address recipient, uint256 amount) external {
+        require(address(stablecoin) != address(0), StablecoinNotSet());
         require(dstChain != block.chainid, SameChain());
         require(recipient != address(0), ZeroRecipient());
         require(amount > 0, ZeroAmount());

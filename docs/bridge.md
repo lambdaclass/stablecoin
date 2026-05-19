@@ -241,27 +241,32 @@ A frozen account cannot send or receive tokens through the bridge. No bridge-spe
 
 All contracts are deployed to the same addresses across all chains using the [Arachnid deterministic deployer](https://github.com/Arachnid/deterministic-deployment-proxy) (`0x4e59b44847b379578588920cA78FbF26c0B4956C`). For each contract, the implementation is deployed via CREATE2, then an ERC1967Proxy is deployed via CREATE2 with the implementation address and initializer calldata baked into the constructor args. Since the bytecode and salt are identical across chains, the resulting addresses are the same everywhere.
 
-A single Foundry deployment script handles the full sequence. Per-chain configuration (e.g., allowed senders per source chain) is loaded from a TOML configuration file.
+The deploy and configuration logic lives in two Solidity libraries, reused by the deployment scripts and the test suite:
 
-The deploy and configuration logic lives in two Solidity libraries, so both the deployment script and tests can reuse the same code:
-
-- **BridgeDeploy**: deploys all contracts (implementation + proxy for each).
+- **BridgeDeploy**: deploys all contracts (implementation + proxy for each); also exposes `computeAddresses`, a pure mirror that re-derives the deterministic proxy addresses without performing any deployment.
 - **BridgeConfig**: configures the deployed contracts (stablecoin role grants, attestor set and threshold, allowed source chain senders on BridgeMinter, destination minter addresses on BridgeBurner).
+
+### Two-script flow: deploy ≠ configure
+
+Deployment is split into **two Foundry scripts** that must be executed by **two different signers**:
+
+1. **`script/DeployBridge.s.sol`** — run by a single-EOA deployer. Calls `BridgeDeploy.deployAll(salt, owner)` and broadcasts the four CREATE2 deployments. The EOA pays gas but never gains privileges over the deployed contracts: `owner` is encoded into every proxy's init code and is the Safe / multisig from t=0.
+2. **`script/ConfigureBridge.s.sol`** — run from the bridge `owner` (typically a Safe). Re-derives the contract addresses via `BridgeDeploy.computeAddresses(salt, owner)`, asserts each one has code, and calls `BridgeConfig.configure`. The Safe must additionally hold `ADMIN_ROLE` on the stablecoin so it can grant `BURNER_ROLE` to the BridgeBurner and add the BridgeMinter as a minter.
+
+**Why the split is mandatory.** `BridgeConfig.configure` calls eight privileged functions: six `onlyOwner` on bridge contracts (`setStablecoin` × 2, `addAttestor`, `setThreshold`, `setAllowedSender`, `setDstMinter`) and two `ADMIN_ROLE`-gated on the stablecoin (`grantRole`, `addMinter`). All eight must be authorized by the bridge owner, which in production is a Safe. A combined "deploy + configure" broadcast can only succeed when the broadcaster IS the owner — true in dev (Anvil account #0), but never in production.
+
+A naive workaround — "deploy with `owner = EOA`, run configure, then `transferOwnership` to Safe" — would break cross-chain address determinism: `owner` is hashed into every proxy's init code, so a different intermediate `owner` per chain yields a different CREATE2 address per chain, breaking the `allowed_senders` / `dst_minters` wiring. The two-script flow preserves determinism because `owner` is the Safe from the very first CREATE2 call.
+
+**Recommended execution.** In production, run the configure step in `--sender $SAFE` simulation mode so forge writes the resulting transaction data to `broadcast/ConfigureBridge.s.sol/<chainId>/dry-run/run-latest.json`. Convert that JSON to a Safe-tx-builder bundle for signer review and on-chain execution. In dev, deployer == owner == admin, so `--broadcast --private-key $DEPLOYER_PK` applies the configuration directly on both scripts.
 
 ### Deployment order
 
-| Step | Action | Notes |
-|------|--------|-------|
-| 1 | Deploy Stablecoin (implementation + proxy) | Initialized with name, symbol, decimals, roles |
-| 2 | Deploy Outbox (implementation + proxy) | |
-| 3 | Deploy Inbox (implementation + proxy) | |
-| 4 | Deploy BridgeBurner (implementation + proxy) | Initialized with stablecoin and outbox references |
-| 5 | Deploy BridgeMinter (implementation + proxy) | Initialized with stablecoin and inbox references |
-| 6 | Grant BURNER_ROLE to BridgeBurner on Stablecoin | |
-| 7 | Add BridgeMinter as minter on Stablecoin (with allowance) | Allowance from config file |
-| 8 | Configure Inbox | Add attestors, set threshold |
-| 9 | Configure BridgeMinter | Set allowed senders per source chain (per-chain) |
-| 10 | Configure BridgeBurner | Set destination minter addresses per chain (per-chain) |
+| Step | Action | Signer | Notes |
+|------|--------|--------|-------|
+| 1 | Deploy Stablecoin (implementation + proxy) | Stablecoin deployer | Initialized with name, symbol, decimals, roles |
+| 2 | `DeployBridge.s.sol` deploys Outbox / Inbox / BridgeBurner / BridgeMinter | Bridge deployer (EOA) | All four via Arachnid CREATE2; `owner` is the Safe |
+| 3 | Stablecoin admin grants the Safe `ADMIN_ROLE` (if not already) | Stablecoin admin | Required before step 4 |
+| 4 | `ConfigureBridge.s.sol` runs `BridgeConfig.configure` | Bridge owner (Safe) | Wires stablecoin, attestors, threshold, allowed senders, destination minters |
 
 ## Future Ideas
 

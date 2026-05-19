@@ -1,14 +1,126 @@
 # Bridge deployment configuration (example for chain A)
-# Usage: forge script script/DeployBridge.s.sol --sig "run(string)" bridge-config.example.toml
+#
+# Two-step deploy → configure flow (see docs/bridge.md "Two-script flow"):
+#
+#   # Step 1 — single EOA deployer broadcasts the CREATE2 deployments.
+#   #          The deployer pays gas but never gains owner privileges; `owner`
+#   #          below is baked into every proxy's init code from t=0.
+#   forge script script/DeployBridge.s.sol \
+#     --sig "run(string)" bridge-config.example.toml \
+#     --rpc-url $RPC --broadcast --private-key $DEPLOYER_PK
+#
+#   # Step 2 — bridge owner (typically a Safe) configures the deployed contracts.
+#   #          Run in --sender simulation mode to produce Safe-tx-builder JSON
+#   #          for signer review; the Safe itself executes on-chain.
+#   forge script script/ConfigureBridge.s.sol \
+#     --sig "run(string)" bridge-config.example.toml \
+#     --rpc-url $RPC --sender $SAFE_ADDRESS
+#
+# NOTE: BridgeBurner and BridgeMinter proxy addresses are deterministic across every
+# EVM chain (Arachnid CREATE2 factory + same init code) — but ONLY when EVERY input
+# to the init code matches across chains. In practice that means three values must
+# be IDENTICAL on every chain the bridge is deployed to:
+#
+#   1. `salt`  — same `baseSalt` here on chain A as in chain B's config file.
+#   2. `owner` — same address on every chain. Crucially this means: if `owner` is
+#                a Safe (or any contract), the SAFE ITSELF must be deployed to the
+#                same address on every chain. The standard way to achieve this is
+#                to deploy the Safe via the same SafeProxyFactory using the same
+#                `(singleton, owners[], threshold, fallbackHandler, saltNonce)`,
+#                which gives the Safe a deterministic CREATE2 address. A Safe
+#                deployed ad-hoc on each chain WILL get a different address per
+#                chain and the bridge proxy addresses will NOT match.
+#   3. Stablecoin solc compiler version and settings — these change the
+#                BridgeBurner/Minter implementation bytecode, which is the input
+#                to `salt + "burner-impl"` / `"minter-impl"`. Pin Foundry's
+#                `foundry.toml` to the same `solc_version` and `optimizer` config
+#                on every deployment host. Also pin `bytecode_hash = "none"` and
+#                `cbor_metadata = false` (both currently set) — otherwise solc
+#                appends a CBOR metadata blob whose IPFS hash drifts with file
+#                paths, comments, and imported-library patch versions, silently
+#                drifting every CREATE2 address even though the opcodes are
+#                byte-identical.
+#
+# Why this matters: `allowed_senders` and `dst_minters` below MUST reference the
+# *counterpart* chain's BridgeBurner / BridgeMinter addresses. Because of the
+# determinism above, the counterpart addresses are IDENTICAL to the local ones —
+# but if any of the three inputs above diverges, the counterpart addresses will
+# diverge too, BridgeMinter.handleMessage will reject inbound messages with
+# `DisallowedSender`, and (because BridgeBurner.sendTo burns BEFORE dispatching
+# the message) user funds get stranded until configuration is corrected and the
+# attestor flow retries the message.
+#
+# The chain IDs in allowed_senders / dst_minters of course refer to chains
+# *other than the local one*; BridgeBurner.sendTo reverts on
+# dstChain == block.chainid.
+#
+# ⚠️ TRUST MODEL — IMPORTANT
+#
+# Address determinism is a *convenience* property, NOT a trust property. Adding
+# a chain ID to `allowed_senders` is a security decision that is INDEPENDENT of
+# whether the counterpart address matches: anyone (including an attacker) can
+# deploy a contract at the matching address on a new chain by replicating
+# `(salt, owner, compiler settings)`. The on-chain `allowedSenders[srcChain]`
+# check rejects messages from chains you haven't whitelisted, but if you
+# whitelist a chain whose Outbox is malicious, no on-chain mechanism protects
+# you — the attestor service is the load-bearing trust gate, because attestors
+# are configured off-chain to watch only a specific allow-list of chains'
+# Outboxes.
+#
+# Before adding any chain ID to `allowed_senders` / `dst_minters`:
+#
+#   1. The chain must be added to the attestor service's chain allow-list,
+#      and a quorum of attestors must be observing it via trustworthy RPCs.
+#   2. The chain must have the Arachnid CREATE2 factory deployed at
+#      `0x4e59…4956C` (verify with `cast code <addr> --rpc-url <chain>`).
+#   3. The chain must support the same compiler/optimizer profile the bridge
+#      was built with (otherwise the burner/minter init code hash differs and
+#      the address will NOT actually match).
+#   4. The chain's finality assumptions must be acceptable to the bridge's
+#      reorg-handling policy (see watcher cursor docs).
+#
+# A matching address with NONE of (1)–(4) confirmed is a security incident,
+# not a routing opportunity. Operators must not extrapolate "same address ⇒
+# safe to whitelist" — extrapolating the wrong way here is exactly how M-01
+# transitions from a configuration bug into an exploit.
+#
+# After the first deployment, verify cross-chain consistency BEFORE bridging any
+# real value:
+#   cast call $BURNER_CHAIN_A "owner()(address)" --rpc-url $RPC_A
+#   cast call $BURNER_CHAIN_B "owner()(address)" --rpc-url $RPC_B
+#   # the two values must be byte-identical, and the local burner/minter
+#   # addresses must match those listed in allowed_senders / dst_minters.
 
 [bridge]
 # Address of the pre-deployed stablecoin proxy on this chain
 stablecoin = "0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512"
 
-# Owner of all bridge contracts (can upgrade and configure)
+# Owner of all bridge contracts (can upgrade and configure).
+#
+# ⚠️ PRODUCTION: replace the placeholder below with your Safe address. The Safe
+# MUST be deployed at the same address on every chain (see the SafeProxyFactory
+# note in the header). The Safe also needs `ADMIN_ROLE` on the stablecoin so
+# that `ConfigureBridge` can grant `BURNER_ROLE` to the BridgeBurner and add the
+# BridgeMinter as a minter.
+#
+# The value below (`0xf39F…2266`, Anvil account #0) is for DEV ONLY. In dev,
+# deployer == owner == admin, so DeployBridge and ConfigureBridge can be run
+# back-to-back from the same key. In production they MUST be split: the EOA
+# deployer runs DeployBridge, then the Safe runs ConfigureBridge separately.
+#
+# MUST be byte-identical to the `owner` used on every other chain this bridge
+# is deployed to. The address is baked into the proxy init code, so any
+# variation here yields a different CREATE2 address for BridgeBurner /
+# BridgeMinter on this chain, breaking the cross-chain determinism that
+# `allowed_senders` / `dst_minters` rely on. See the header NOTE above for
+# how to obtain the same Safe address on multiple chains.
 owner = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
 
-# Base salt for deterministic CREATE2 deployment (same across all chains)
+# Base salt for deterministic CREATE2 deployment.
+#
+# MUST be byte-identical to the `salt` used on every other chain this bridge
+# is deployed to. Required (but not sufficient) condition for cross-chain
+# address determinism — see the header NOTE above.
 salt = "0x0000000000000000000000000000000000000000000000000000000000000001"
 
 [bridge.inbox]

@@ -39,6 +39,12 @@ library BridgeConfig {
     function configure(Stablecoin stablecoin, BridgeDeploy.Contracts memory c, Config memory config) internal {
         _validateConfig(config);
 
+        // 0. Wire the (chain-specific) stablecoin into BridgeBurner and BridgeMinter.
+        // The stablecoin address is intentionally NOT part of the proxy creation
+        // bytecode (see BridgeDeploy dev note), so we set it post-deployment here.
+        c.bridgeBurner.setStablecoin(address(stablecoin));
+        c.bridgeMinter.setStablecoin(address(stablecoin));
+
         // 1. Grant BURNER_ROLE to BridgeBurner on the stablecoin
         stablecoin.grantRole(stablecoin.BURNER_ROLE(), address(c.bridgeBurner));
 
