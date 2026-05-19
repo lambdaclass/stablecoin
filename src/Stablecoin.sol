@@ -21,7 +21,13 @@ import {SignedMath} from "@openzeppelin/contracts/utils/math/SignedMath.sol";
  * @dev Upgradeable ERC20 stablecoin with role-based access control.
  *
  * Roles:
- *  - ADMIN_ROLE: Manages minters and their allowances, authorizes upgrades.
+ *  - ADMIN_ROLE: Manages minters and their allowances, authorizes upgrades, and
+ *    administers itself (can grant or revoke ADMIN_ROLE on other accounts).
+ *    For production deployments, the holder of ADMIN_ROLE MUST be an OpenZeppelin
+ *    `TimelockController` (or equivalent delayed-execution governance contract);
+ *    direct EOAs or unsynchronized multisigs SHOULD NOT hold ADMIN_ROLE because the
+ *    role is self-administering and any rotation, grant, or revocation runs
+ *    immediately.
  *  - MINTER_ROLE: Can mint tokens up to an individual allowance. Managed exclusively
  *    through addMinter/removeMinter to keep role and allowance state in sync.
  *  - BURNER_ROLE: Can burn tokens from own balance or via allowance (burnFrom).
@@ -66,6 +72,27 @@ contract Stablecoin is
     error MinterDoesNotExist(address minter);
     error AccountIsFrozen(address account);
 
+    /// @dev Reverts when a revoke or renounce of ADMIN_ROLE would empty the
+    /// admin set. ADMIN_ROLE is self-administering, so a zero-member admin set
+    /// is unrecoverable on-chain: minter management, role rotation, and UUPS
+    /// upgrade authorization all become permanently unreachable.
+    error AdminRoleCannotBeEmpty();
+
+    /// @dev Reverts when a revoke or renounce of ADMIN_ROLE targets an address
+    /// that does not currently hold the role. Without this guard, OZ's
+    /// `_revokeRole` returns `false` silently with no event — indistinguishable
+    /// from success at the caller. Critical for timelock-gated revocations
+    /// where the operator would otherwise burn the `minDelay` window only to
+    /// discover the revoke was a no-op on a typo'd address.
+    error NotAnAdmin(address account);
+
+    /// @dev Reverts when `_authorizeUpgrade` is reached with an implementation
+    /// address that has no bytecode. UUPSUpgradeable's `proxiableUUID` staticcall
+    /// would also fail downstream, but this earlier check produces a typed
+    /// revert and closes the path where a raw timelock `schedule(...)` call
+    /// bypasses the timelock helper's input validation.
+    error NotAContract(address impl);
+
     modifier whenNotFrozen(address account) {
         _whenNotFrozen(account);
         _;
@@ -90,6 +117,15 @@ contract Stablecoin is
      * making grantRole/revokeRole for MINTER_ROLE always revert. The only way to
      * manage minters is through addMinter/removeMinter, which atomically update both
      * the role and the allowance, preventing state divergence between the two.
+     *
+     * @dev ADMIN_ROLE is configured as its own admin so that an existing admin can
+     * rotate the role on-chain (grant ADMIN_ROLE to a new account, revoke it from
+     * an old one). Because the role is self-administering and grants/revocations
+     * are immediate, the recommended `admin` value at initialize-time is an
+     * OpenZeppelin `TimelockController` deployed via `script/DeployTimelock.s.sol`.
+     * Routing rotations through a timelock gives the team a delay window to detect
+     * and cancel a hostile rotation before it executes. Revoking or renouncing the
+     * last remaining admin reverts (see `_revokeRole`).
      */
     function initialize(
         string memory name,
@@ -114,6 +150,7 @@ contract Stablecoin is
         _decimals = decimals_;
 
         // MINTER_ROLE intentionally not listed here — see @dev note above.
+        _setRoleAdmin(ADMIN_ROLE, ADMIN_ROLE);
         _setRoleAdmin(BURNER_ROLE, ADMIN_ROLE);
         _setRoleAdmin(PAUSER_ROLE, ADMIN_ROLE);
         _setRoleAdmin(FREEZER_ROLE, ADMIN_ROLE);
@@ -121,6 +158,22 @@ contract Stablecoin is
         _grantRole(BURNER_ROLE, burner);
         _grantRole(PAUSER_ROLE, pauser);
         _grantRole(FREEZER_ROLE, freezer);
+    }
+
+    /// @notice One-time storage-slot repair for proxies that were initialized
+    /// under a prior implementation where `_setRoleAdmin(ADMIN_ROLE, ADMIN_ROLE)`
+    /// was never called. Sets `ADMIN_ROLE` as its own admin so the current
+    /// admin can rotate the role (M-01).
+    ///
+    /// @dev Gated by `reinitializer(2)` so it can run at most once per proxy,
+    /// and by `onlyRole(ADMIN_ROLE)` so only the legitimate admin can trigger
+    /// the repair. On a freshly-deployed proxy the call is a no-op (the new
+    /// `initialize` already sets the same value); on an upgraded proxy it
+    /// repairs the previously-unset slot. Intended call sites:
+    ///   proxy.upgradeToAndCall(newImpl, abi.encodeCall(this.reinitializeAdminRole, ()))
+    /// so the upgrade and the storage repair happen atomically.
+    function reinitializeAdminRole() public reinitializer(2) onlyRole(ADMIN_ROLE) {
+        _setRoleAdmin(ADMIN_ROLE, ADMIN_ROLE);
     }
 
     function decimals() public view override returns (uint8) {
@@ -304,9 +357,32 @@ contract Stablecoin is
     }
 
     /// @dev UUPS upgrade authorization — only ADMIN_ROLE can upgrade the implementation.
-    function _authorizeUpgrade(address newImplementation) internal override onlyRole(ADMIN_ROLE) {}
+    /// Also rejects non-contract implementations so a fat-fingered EOA or
+    /// `address(0)` cannot reach the `proxiableUUID` step (closes the raw
+    /// `timelock.schedule(...)` bypass of `StablecoinTimelock.scheduleUpgrade`).
+    function _authorizeUpgrade(address newImplementation) internal override onlyRole(ADMIN_ROLE) {
+        if (newImplementation.code.length == 0) revert NotAContract(newImplementation);
+    }
 
     function _whenNotFrozen(address account) internal view {
         require(!frozen[account], AccountIsFrozen(account));
+    }
+
+    /// @dev Centralized revoke hook for both `revokeRole` and `renounceRole`.
+    /// For ADMIN_ROLE: rejects revocations targeting a non-holder (closes OZ's
+    /// silent-no-op path, which would otherwise mask a typo'd address after a
+    /// matured timelock window) and refuses to remove the last remaining
+    /// holder (ADMIN_ROLE is its own admin, so a zero-admin state is
+    /// unrecoverable on-chain). For other roles, behaves like OZ.
+    function _revokeRole(bytes32 role, address account)
+        internal
+        override(AccessControlEnumerableUpgradeable)
+        returns (bool)
+    {
+        if (role == ADMIN_ROLE) {
+            if (!hasRole(ADMIN_ROLE, account)) revert NotAnAdmin(account);
+            if (getRoleMemberCount(ADMIN_ROLE) == 1) revert AdminRoleCannotBeEmpty();
+        }
+        return super._revokeRole(role, account);
     }
 }

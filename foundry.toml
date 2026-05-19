@@ -13,4 +13,12 @@ optimizer_runs = 200
 cbor_metadata = false
 bytecode_hash = "none"
 ignored_warnings_from = ["lib"]
+# fs_permissions intentionally lists reads broadly (any entry shifts foundry
+# into strict mode, where unlisted paths are *blocked*; OZ Upgrades relies on
+# reading out/ at validation time, so we restore that). The single write
+# permission scopes vm.writeJson to the integration test's state file.
+fs_permissions = [
+    { access = "read", path = "./" },
+    { access = "read-write", path = "./integration-state.json" },
+]
 # See more config options https://github.com/foundry-rs/foundry/blob/master/crates/config/README.md#all-options

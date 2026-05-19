@@ -6,6 +6,8 @@ import {Stablecoin} from "../src/Stablecoin.sol";
 import {
     ERC1967Proxy
 } from "lib/openzeppelin-contracts-upgradeable/lib/openzeppelin-contracts/contracts/proxy/ERC1967/ERC1967Proxy.sol";
+import {TimelockController} from "@openzeppelin/contracts/governance/TimelockController.sol";
+import {OldStablecoin} from "../script/integration/OldStablecoin.sol";
 
 contract StablecoinTest is Test {
     Stablecoin public stablecoin;
@@ -503,6 +505,259 @@ contract StablecoinTest is Test {
         emit Stablecoin.AccountUnfrozen(account);
         stablecoin.unfreeze(account);
         assertFalse(stablecoin.frozen(account));
+    }
+
+    // ============ ADMIN_ROLE Rotation Tests (M-01) ============
+
+    function test_AdminCanGrantAdminRole() public {
+        bytes32 adminRole = stablecoin.ADMIN_ROLE();
+        address newAdmin = address(0xAD1);
+
+        vm.prank(ADMIN);
+        stablecoin.grantRole(adminRole, newAdmin);
+
+        assertTrue(stablecoin.hasRole(adminRole, newAdmin));
+        assertTrue(stablecoin.hasRole(adminRole, ADMIN));
+        assertEq(stablecoin.getRoleMemberCount(adminRole), 2);
+    }
+
+    function test_AdminCanRevokeOtherAdmin() public {
+        bytes32 adminRole = stablecoin.ADMIN_ROLE();
+        address otherAdmin = address(0xAD1);
+
+        vm.startPrank(ADMIN);
+        stablecoin.grantRole(adminRole, otherAdmin);
+        assertEq(stablecoin.getRoleMemberCount(adminRole), 2);
+
+        stablecoin.revokeRole(adminRole, otherAdmin);
+        vm.stopPrank();
+
+        assertFalse(stablecoin.hasRole(adminRole, otherAdmin));
+        assertTrue(stablecoin.hasRole(adminRole, ADMIN));
+        assertEq(stablecoin.getRoleMemberCount(adminRole), 1);
+    }
+
+    function test_CannotRevokeLastAdmin() public {
+        bytes32 adminRole = stablecoin.ADMIN_ROLE();
+
+        // Only the original ADMIN holds ADMIN_ROLE; revoking it would leave zero admins.
+        vm.prank(ADMIN);
+        vm.expectRevert(Stablecoin.AdminRoleCannotBeEmpty.selector);
+        stablecoin.revokeRole(adminRole, ADMIN);
+
+        assertTrue(stablecoin.hasRole(adminRole, ADMIN));
+    }
+
+    function test_CannotRenounceLastAdmin() public {
+        bytes32 adminRole = stablecoin.ADMIN_ROLE();
+
+        vm.prank(ADMIN);
+        vm.expectRevert(Stablecoin.AdminRoleCannotBeEmpty.selector);
+        stablecoin.renounceRole(adminRole, ADMIN);
+
+        assertTrue(stablecoin.hasRole(adminRole, ADMIN));
+    }
+
+    function test_CanRenounceAdminWhenMultipleAdminsExist() public {
+        bytes32 adminRole = stablecoin.ADMIN_ROLE();
+        address otherAdmin = address(0xAD1);
+
+        vm.startPrank(ADMIN);
+        stablecoin.grantRole(adminRole, otherAdmin);
+        // The original ADMIN can now safely renounce because otherAdmin remains.
+        stablecoin.renounceRole(adminRole, ADMIN);
+        vm.stopPrank();
+
+        assertFalse(stablecoin.hasRole(adminRole, ADMIN));
+        assertTrue(stablecoin.hasRole(adminRole, otherAdmin));
+        assertEq(stablecoin.getRoleMemberCount(adminRole), 1);
+    }
+
+    /// @dev Direct (non-timelock) revoke of ADMIN_ROLE on a non-holder must
+    /// revert with `NotAnAdmin`. Closes OZ's silent-no-op path at the source,
+    /// independent of any timelock helper.
+    function test_RevokeAdminOnNonHolderReverts() public {
+        bytes32 adminRole = stablecoin.ADMIN_ROLE();
+        address nonHolder = address(0xBADBAD);
+        assertFalse(stablecoin.hasRole(adminRole, nonHolder));
+
+        vm.prank(ADMIN);
+        vm.expectRevert(abi.encodeWithSelector(Stablecoin.NotAnAdmin.selector, nonHolder));
+        stablecoin.revokeRole(adminRole, nonHolder);
+    }
+
+    /// @dev A non-admin self-renouncing ADMIN_ROLE previously silently no-op'd
+    /// (OZ's `_revokeRole` returned `false`). With the new guard it reverts
+    /// with `NotAnAdmin`. Exercises the `_revokeRole` path reached via
+    /// `renounceRole` rather than `revokeRole`.
+    function test_RenounceAdminByNonAdminReverts() public {
+        bytes32 adminRole = stablecoin.ADMIN_ROLE();
+        address nonAdmin = address(0xBADBAD);
+        assertFalse(stablecoin.hasRole(adminRole, nonAdmin));
+
+        vm.prank(nonAdmin);
+        vm.expectRevert(abi.encodeWithSelector(Stablecoin.NotAnAdmin.selector, nonAdmin));
+        stablecoin.renounceRole(adminRole, nonAdmin);
+    }
+
+    function test_NonAdminCannotGrantAdminRole() public {
+        bytes32 adminRole = stablecoin.ADMIN_ROLE();
+        address nonAdmin = address(0xBADD);
+        bytes memory expectedError =
+            abi.encodeWithSignature("AccessControlUnauthorizedAccount(address,bytes32)", nonAdmin, adminRole);
+
+        vm.prank(nonAdmin);
+        vm.expectRevert(expectedError);
+        stablecoin.grantRole(adminRole, address(0xAD1));
+    }
+
+    function test_AdminRotationFullCycle() public {
+        bytes32 adminRole = stablecoin.ADMIN_ROLE();
+        address newAdmin = address(0xAD1);
+
+        // 1. New admin is granted; 2. Old admin renounces.
+        vm.startPrank(ADMIN);
+        stablecoin.grantRole(adminRole, newAdmin);
+        stablecoin.renounceRole(adminRole, ADMIN);
+        vm.stopPrank();
+
+        // 3. The new admin can now exercise admin operations.
+        address newMinter = address(0xBEEF);
+        vm.prank(newAdmin);
+        stablecoin.addMinter(newMinter, 100);
+        assertTrue(stablecoin.hasRole(stablecoin.MINTER_ROLE(), newMinter));
+
+        // 4. The old admin can no longer.
+        bytes memory expectedError =
+            abi.encodeWithSignature("AccessControlUnauthorizedAccount(address,bytes32)", ADMIN, adminRole);
+        vm.prank(ADMIN);
+        vm.expectRevert(expectedError);
+        stablecoin.addMinter(address(0xCAFE), 100);
+    }
+
+    function test_TimelockControllerAsAdmin() public {
+        bytes32 adminRole = stablecoin.ADMIN_ROLE();
+
+        // Deploy a TimelockController with the ADMIN address as the sole proposer
+        // and open execution (anyone can execute matured operations).
+        uint256 delay = 1 days;
+        address[] memory proposers = new address[](1);
+        proposers[0] = ADMIN;
+        address[] memory executors = new address[](1);
+        executors[0] = address(0); // open execution
+        TimelockController timelock = new TimelockController(delay, proposers, executors, address(0));
+
+        // Hand ADMIN_ROLE over to the timelock and remove the EOA admin.
+        vm.startPrank(ADMIN);
+        stablecoin.grantRole(adminRole, address(timelock));
+        stablecoin.renounceRole(adminRole, ADMIN);
+        vm.stopPrank();
+
+        assertEq(stablecoin.getRoleMemberCount(adminRole), 1);
+        assertTrue(stablecoin.hasRole(adminRole, address(timelock)));
+
+        // From now on, any admin action requires going through the timelock.
+        address newMinter = address(0xBEEF);
+        bytes memory callData = abi.encodeCall(stablecoin.addMinter, (newMinter, 1000));
+        bytes32 salt = bytes32(uint256(1));
+
+        vm.prank(ADMIN);
+        timelock.schedule(address(stablecoin), 0, callData, bytes32(0), salt, delay);
+
+        // Before the delay matures, execution reverts.
+        vm.expectRevert();
+        timelock.execute(address(stablecoin), 0, callData, bytes32(0), salt);
+
+        // After the delay, execution succeeds and the minter is added.
+        vm.warp(block.timestamp + delay + 1);
+        timelock.execute(address(stablecoin), 0, callData, bytes32(0), salt);
+        assertTrue(stablecoin.hasRole(stablecoin.MINTER_ROLE(), newMinter));
+    }
+
+    // ============ reinitializeAdminRole Tests ============
+
+    function test_ReinitializeAdminRole_RevertsOnFreshDeploy() public {
+        // A freshly-deployed proxy is already at version 1 with the role admin
+        // correctly set; calling reinitializer(2) here would normally succeed
+        // and set _initialized to 2. We assert this happens once, then a
+        // second call reverts.
+        vm.prank(ADMIN);
+        stablecoin.reinitializeAdminRole();
+        assertEq(stablecoin.getRoleAdmin(stablecoin.ADMIN_ROLE()), stablecoin.ADMIN_ROLE());
+
+        // Second call reverts with InvalidInitialization (version cap reached).
+        vm.prank(ADMIN);
+        vm.expectRevert(abi.encodeWithSignature("InvalidInitialization()"));
+        stablecoin.reinitializeAdminRole();
+    }
+
+    function test_ReinitializeAdminRole_OnlyAdmin() public {
+        address nonAdmin = address(0xBADD);
+        bytes memory expectedError = abi.encodeWithSignature(
+            "AccessControlUnauthorizedAccount(address,bytes32)", nonAdmin, stablecoin.ADMIN_ROLE()
+        );
+
+        vm.prank(nonAdmin);
+        vm.expectRevert(expectedError);
+        stablecoin.reinitializeAdminRole();
+    }
+
+    /// @dev End-to-end coverage of the upgrade-from-main migration. Deploys the
+    /// pre-M-01 implementation behind a proxy, proves the bug exists (the
+    /// initial admin can't rotate ADMIN_ROLE), then atomically upgrades to
+    /// this branch's implementation via `upgradeToAndCall(newImpl,
+    /// reinitializeAdminRole())`. After the upgrade the role admin slot is
+    /// repaired and the admin can rotate the role to a fresh address.
+    /// Runs under standard `forge test` — no anvil required, complementing the
+    /// bash-orchestrated integration script.
+    function test_UpgradeFromMain_RepairsRoleAdminAndAllowsRotation() public {
+        // 1. Deploy OldStablecoin behind a proxy. Use a distinct admin EOA so
+        //    it's clear we're not relying on test-class state.
+        address oldAdmin = address(0xA1);
+        OldStablecoin oldImpl = new OldStablecoin();
+        ERC1967Proxy oldProxy = new ERC1967Proxy(
+            address(oldImpl),
+            abi.encodeCall(OldStablecoin.initialize, ("Legacy", "LGC", 18, oldAdmin, oldAdmin, oldAdmin, oldAdmin))
+        );
+        OldStablecoin legacy = OldStablecoin(address(oldProxy));
+        bytes32 adminRole = legacy.ADMIN_ROLE();
+
+        // 2. Prove the bug: on the pre-M-01 implementation the role admin of
+        //    ADMIN_ROLE is DEFAULT_ADMIN_ROLE, held by no one. So even the
+        //    legitimate admin can't grant ADMIN_ROLE to anyone. This is the
+        //    failure mode the audit flagged (M-01).
+        address newHolder = address(0xA2);
+        vm.prank(oldAdmin);
+        vm.expectRevert(
+            abi.encodeWithSignature("AccessControlUnauthorizedAccount(address,bytes32)", oldAdmin, bytes32(0))
+        );
+        legacy.grantRole(adminRole, newHolder);
+
+        // 3. Atomic upgrade + reinit. The reinit fixes the role admin slot in
+        //    the same tx the implementation flips, eliminating any window in
+        //    which the proxy is on new code with an unrepaired storage layout.
+        Stablecoin newImpl = new Stablecoin();
+        vm.prank(oldAdmin);
+        Stablecoin(address(oldProxy))
+            .upgradeToAndCall(address(newImpl), abi.encodeCall(Stablecoin.reinitializeAdminRole, ()));
+        Stablecoin upgraded = Stablecoin(address(oldProxy));
+
+        // 4. Slot is now repaired: ADMIN_ROLE administers itself.
+        assertEq(upgraded.getRoleAdmin(adminRole), adminRole, "role admin slot not repaired");
+
+        // 5. Old admin can now do the thing that was previously impossible:
+        //    grant ADMIN_ROLE to a fresh holder.
+        vm.prank(oldAdmin);
+        upgraded.grantRole(adminRole, newHolder);
+        assertTrue(upgraded.hasRole(adminRole, newHolder), "grantRole failed post-upgrade");
+        assertTrue(upgraded.hasRole(adminRole, oldAdmin), "oldAdmin lost the role");
+        assertEq(upgraded.getRoleMemberCount(adminRole), 2);
+
+        // 6. The reinitializer's version cap is consumed: a second call must
+        //    revert, so we can't accidentally repair twice.
+        vm.prank(oldAdmin);
+        vm.expectRevert(abi.encodeWithSignature("InvalidInitialization()"));
+        upgraded.reinitializeAdminRole();
     }
 
     function test_NonAdminCannotUpgrade() public {
