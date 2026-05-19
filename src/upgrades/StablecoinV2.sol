@@ -6,8 +6,7 @@ import {Stablecoin} from "../Stablecoin.sol";
 /// @title StablecoinV2
 /// @notice Illustrative second version of the Stablecoin used to exercise the UUPS upgrade
 /// path. Adds a `_maxSupply` storage variable appended after V1 storage and a reinitializer
-/// hook to populate it. The cap is exposed but not currently enforced by `_update`; that
-/// behavior is intentionally illustrative.
+/// hook to populate it.
 /// @custom:oz-upgrades-from Stablecoin
 contract StablecoinV2 is Stablecoin {
     /// @dev New storage slot appended after V1 layout (slot 4+).
