@@ -45,6 +45,17 @@ import {BridgeMinter} from "../BridgeMinter.sol";
 ///      `type(BridgeMinter).creationCode`, and `type(ERC1967Proxy).creationCode`,
 ///      all of which are inputs to the CREATE2 hash. Pin `foundry.toml`'s
 ///      `solc_version` and `optimizer` settings identically across deployment hosts.
+///   6. Bytecode metadata appendix — by default solc appends a CBOR-encoded
+///      metadata blob (~53 bytes, includes an IPFS hash of the source files) to
+///      the end of every contract's bytecode. The blob's IPFS hash changes with
+///      file paths, comments, and any imported library's patch version, even when
+///      the executable opcodes are byte-identical. That metadata is part of
+///      `creationCode`, so it feeds the CREATE2 hash and a drifting blob silently
+///      drifts every proxy address. Foundry strips it via `bytecode_hash = "none"`
+///      and `cbor_metadata = false` in `foundry.toml` (both currently set). This
+///      MUST stay that way; `BridgeDeployTest.test_CreationCodeHasNoMetadataAppendix`
+///      asserts the strip is actually taking effect and fails CI if either setting
+///      regresses.
 ///
 /// If any of those diverges, the BridgeBurner/Minter addresses diverge per chain
 /// and the cross-chain `allowed_senders` / `dst_minters` configuration in

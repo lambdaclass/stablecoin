@@ -34,7 +34,12 @@
 #                BridgeBurner/Minter implementation bytecode, which is the input
 #                to `salt + "burner-impl"` / `"minter-impl"`. Pin Foundry's
 #                `foundry.toml` to the same `solc_version` and `optimizer` config
-#                on every deployment host.
+#                on every deployment host. Also pin `bytecode_hash = "none"` and
+#                `cbor_metadata = false` (both currently set) — otherwise solc
+#                appends a CBOR metadata blob whose IPFS hash drifts with file
+#                paths, comments, and imported-library patch versions, silently
+#                drifting every CREATE2 address even though the opcodes are
+#                byte-identical.
 #
 # Why this matters: `allowed_senders` and `dst_minters` below MUST reference the
 # *counterpart* chain's BridgeBurner / BridgeMinter addresses. Because of the

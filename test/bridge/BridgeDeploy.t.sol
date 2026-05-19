@@ -6,6 +6,8 @@ import {BridgeConfig} from "../../src/bridge/deploy/BridgeConfig.sol";
 import {BridgeDeploy} from "../../src/bridge/deploy/BridgeDeploy.sol";
 import {BridgeBurner} from "../../src/bridge/BridgeBurner.sol";
 import {BridgeMinter} from "../../src/bridge/BridgeMinter.sol";
+import {Outbox} from "../../src/bridge/Outbox.sol";
+import {Inbox} from "../../src/bridge/Inbox.sol";
 import {Stablecoin} from "../../src/Stablecoin.sol";
 import {TokenMintMessage} from "../../src/bridge/TokenMintMessage.sol";
 import {
@@ -145,6 +147,54 @@ contract BridgeDeployTest is BridgeTestBase {
         assertEq(address(computed.inbox), address(deployed.inbox));
         assertEq(address(computed.bridgeBurner), address(deployed.bridgeBurner));
         assertEq(address(computed.bridgeMinter), address(deployed.bridgeMinter));
+    }
+
+    // ─── Bytecode metadata regression guard ──────────────────────────
+    //
+    // solc appends a CBOR-encoded metadata blob (~53 bytes, includes an IPFS hash of
+    // the source) to every contract's bytecode unless explicitly stripped. The blob's
+    // IPFS hash drifts with file paths, comments, and imported-library patch versions,
+    // even when the executable opcodes are byte-identical — silently drifting every
+    // CREATE2 address. Foundry strips it via `bytecode_hash = "none"` and
+    // `cbor_metadata = false` in foundry.toml. This test fails CI if either setting
+    // ever regresses, by scanning each bridge contract's creationCode for solc's
+    // CBOR-IPFS marker (`0xa2 0x64 "ipfs" 0x58 0x22` = 8 bytes starting any IPFS
+    // metadata appendix). The marker is too specific to appear in real opcodes by
+    // chance.
+
+    function test_CreationCodeHasNoMetadataAppendix() public pure {
+        _assertNoMetadata("Outbox", type(Outbox).creationCode);
+        _assertNoMetadata("Inbox", type(Inbox).creationCode);
+        _assertNoMetadata("BridgeBurner", type(BridgeBurner).creationCode);
+        _assertNoMetadata("BridgeMinter", type(BridgeMinter).creationCode);
+    }
+
+    function _assertNoMetadata(string memory name, bytes memory code) internal pure {
+        bytes memory marker = hex"a264697066735822"; // CBOR map + "ipfs" key + 34-byte string header
+        require(
+            !_contains(code, marker),
+            string.concat(
+                "metadata appendix detected in ",
+                name,
+                " creationCode - foundry.toml must keep bytecode_hash = \"none\" and cbor_metadata = false"
+            )
+        );
+    }
+
+    function _contains(bytes memory haystack, bytes memory needle) internal pure returns (bool) {
+        if (needle.length == 0 || needle.length > haystack.length) return false;
+        uint256 limit = haystack.length - needle.length;
+        for (uint256 i = 0; i <= limit; i++) {
+            bool match_ = true;
+            for (uint256 j = 0; j < needle.length; j++) {
+                if (haystack[i + j] != needle[j]) {
+                    match_ = false;
+                    break;
+                }
+            }
+            if (match_) return true;
+        }
+        return false;
     }
 
     // ─── Safety net: the StablecoinNotSet guard is what makes the "armed but
