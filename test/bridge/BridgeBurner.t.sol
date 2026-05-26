@@ -5,6 +5,8 @@ import {BridgeTestBase} from "./BridgeTestBase.sol";
 import {BridgeBurner} from "../../src/bridge/BridgeBurner.sol";
 import {IOutbox} from "../../src/bridge/interfaces/IOutbox.sol";
 import {TokenMintMessage} from "../../src/bridge/TokenMintMessage.sol";
+import {Stablecoin} from "../../src/Stablecoin.sol";
+import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 
 contract BridgeBurnerTest is BridgeTestBase {
     address public user = address(0xCAFE);
@@ -159,6 +161,28 @@ contract BridgeBurnerTest is BridgeTestBase {
         vm.prank(ADMIN);
         bridge.bridgeBurner.setStablecoin(address(stablecoin));
         assertEq(address(bridge.bridgeBurner.stablecoin()), address(stablecoin));
+    }
+
+    /// @notice `setStablecoin` rejects a real Stablecoin whose `decimals()` does not
+    /// match `EXPECTED_DECIMALS`. Without this check, bridging from a 6-dec source
+    /// to an 18-dec destination silently mis-mints.
+    function test_SetStablecoinRejectsWrongDecimals() public {
+        // Deploy a parallel Stablecoin with decimals=18 (mismatch vs EXPECTED_DECIMALS=6).
+        Stablecoin impl = new Stablecoin();
+        ERC1967Proxy proxy = new ERC1967Proxy(
+            address(impl), abi.encodeCall(Stablecoin.initialize, ("BadDec", "BAD", 18, ADMIN, BURNER, PAUSER, FREEZER))
+        );
+        address badStablecoin = address(proxy);
+
+        vm.prank(ADMIN);
+        vm.expectRevert(abi.encodeWithSelector(BridgeBurner.DecimalsMismatch.selector, 6, 18));
+        bridge.bridgeBurner.setStablecoin(badStablecoin);
+    }
+
+    /// @notice `EXPECTED_DECIMALS` is the protocol-wide value baked into the source.
+    /// This guards against accidental rebases of the constant.
+    function test_ExpectedDecimalsConstant() public {
+        assertEq(bridge.bridgeBurner.EXPECTED_DECIMALS(), 6);
     }
 }
 

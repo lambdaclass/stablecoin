@@ -4,6 +4,8 @@ pragma solidity =0.8.30;
 import {BridgeTestBase} from "./BridgeTestBase.sol";
 import {BridgeMinter} from "../../src/bridge/BridgeMinter.sol";
 import {TokenMintMessage} from "../../src/bridge/TokenMintMessage.sol";
+import {Stablecoin} from "../../src/Stablecoin.sol";
+import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 
 contract BridgeMinterTest is BridgeTestBase {
     uint256 public constant SRC_CHAIN = 42;
@@ -110,5 +112,24 @@ contract BridgeMinterTest is BridgeTestBase {
         vm.prank(ADMIN);
         bridge.bridgeMinter.setStablecoin(address(stablecoin));
         assertEq(address(bridge.bridgeMinter.stablecoin()), address(stablecoin));
+    }
+
+    /// @notice `setStablecoin` on the minter side enforces the same decimals check
+    /// as the burner side. Without it, an operator could wire a non-6-decimal
+    /// stablecoin on the destination chain and bridging would silently mis-mint.
+    function test_SetStablecoinRejectsWrongDecimals() public {
+        Stablecoin impl = new Stablecoin();
+        ERC1967Proxy proxy = new ERC1967Proxy(
+            address(impl), abi.encodeCall(Stablecoin.initialize, ("BadDec", "BAD", 18, ADMIN, BURNER, PAUSER, FREEZER))
+        );
+        address badStablecoin = address(proxy);
+
+        vm.prank(ADMIN);
+        vm.expectRevert(abi.encodeWithSelector(BridgeMinter.DecimalsMismatch.selector, 6, 18));
+        bridge.bridgeMinter.setStablecoin(badStablecoin);
+    }
+
+    function test_ExpectedDecimalsConstant() public {
+        assertEq(bridge.bridgeMinter.EXPECTED_DECIMALS(), 6);
     }
 }

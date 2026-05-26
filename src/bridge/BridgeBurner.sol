@@ -15,6 +15,19 @@ import {TokenMintMessage} from "./TokenMintMessage.sol";
 /// then sends a message through the Outbox for the destination chain's BridgeMinter.
 /// @custom:security-contact security@lambdaclass.com
 contract BridgeBurner is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable, IBridgeBurner {
+    /// @notice Stablecoin decimals every chain's deployment MUST use.
+    /// @dev Hardcoded so cross-chain consistency is enforced at compile-time of the
+    /// source code. Bridging is a value-transfer protocol where the amount field on
+    /// the wire is interpreted as a count of base units of the destination token —
+    /// if the source and destination tokens use different decimals the same `amount`
+    /// represents different value, silently. The `TokenMintMessage` payload carries
+    /// no decimals tag, so the only safe option is to refuse to wire a stablecoin
+    /// whose decimals diverge from this constant. Constants do not change storage
+    /// layout or CREATE2 determinism (only bytecode); since every chain must already
+    /// compile from the same source for determinism to hold, the value here is
+    /// automatically uniform across chains.
+    uint8 public constant EXPECTED_DECIMALS = 6;
+
     /// @notice Target Stablecoin for sendTo burns
     Stablecoin public stablecoin;
     /// @notice Outbox that dispatches the cross-chain bridge message.
@@ -42,6 +55,11 @@ contract BridgeBurner is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable
     /// @notice Thrown by `setStablecoin` when the target address does not expose the
     /// Stablecoin shape (no `BURNER_ROLE()` accessor returning the canonical constant).
     error NotAStablecoin(address target);
+    /// @notice Thrown by `setStablecoin` when the target's `decimals()` does not match
+    /// `EXPECTED_DECIMALS`. The amount field on the wire has no scaling tag, so a
+    /// mismatch would silently produce an unbacked-mint or under-mint on the
+    /// counterpart chain.
+    error DecimalsMismatch(uint8 expected, uint8 actual);
 
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
@@ -113,6 +131,8 @@ contract BridgeBurner is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable
     function setStablecoin(address stablecoin_) external onlyOwner {
         require(stablecoin_ != address(0), ZeroAddress("stablecoin"));
         _requireStablecoinShape(stablecoin_);
+        uint8 actual = Stablecoin(stablecoin_).decimals();
+        require(actual == EXPECTED_DECIMALS, DecimalsMismatch(EXPECTED_DECIMALS, actual));
         address previous = address(stablecoin);
         stablecoin = Stablecoin(stablecoin_);
         emit StablecoinChanged(previous, stablecoin_);

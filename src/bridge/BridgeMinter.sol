@@ -13,6 +13,11 @@ import {TokenMintMessage} from "./TokenMintMessage.sol";
 /// validates the source chain and sender, then mints tokens to the recipient.
 /// @custom:security-contact security@lambdaclass.com
 contract BridgeMinter is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable, IMessageReceiver {
+    /// @notice Stablecoin decimals every chain's deployment MUST use. See the
+    /// equivalent constant on `BridgeBurner` for the full rationale — both ends
+    /// of a bridge must agree on this value or the wire amount is misinterpreted.
+    uint8 public constant EXPECTED_DECIMALS = 6;
+
     /// @notice Target Stablecoin for mints triggered by inbound messages.
     Stablecoin public stablecoin;
     /// @notice Inbox authorized to deliver messages to this minter (caller of handleMessage).
@@ -38,6 +43,9 @@ contract BridgeMinter is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable
     /// @notice Thrown by `setStablecoin` when the target address does not expose the
     /// Stablecoin shape (no `BURNER_ROLE()` accessor returning the canonical constant).
     error NotAStablecoin(address target);
+    /// @notice Thrown by `setStablecoin` when the target's `decimals()` does not
+    /// match `EXPECTED_DECIMALS`.
+    error DecimalsMismatch(uint8 expected, uint8 actual);
 
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
@@ -90,6 +98,8 @@ contract BridgeMinter is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable
     function setStablecoin(address stablecoin_) external onlyOwner {
         require(stablecoin_ != address(0), ZeroAddress("stablecoin"));
         _requireStablecoinShape(stablecoin_);
+        uint8 actual = Stablecoin(stablecoin_).decimals();
+        require(actual == EXPECTED_DECIMALS, DecimalsMismatch(EXPECTED_DECIMALS, actual));
         address previous = address(stablecoin);
         stablecoin = Stablecoin(stablecoin_);
         emit StablecoinChanged(previous, stablecoin_);
