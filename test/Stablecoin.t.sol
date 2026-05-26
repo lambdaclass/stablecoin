@@ -1530,4 +1530,101 @@ contract StablecoinTest is Test {
         vm.expectRevert(expectedError);
         stablecoin.mint(address(2), 100);
     }
+
+    /// @notice A frozen owner cannot call `approve(...)` — without this guard, the
+    /// frozen account could stage allowances that become live the moment the freeze
+    /// is lifted, defeating the protective intent of the freeze flag.
+    function test_ApproveByFrozenOwnerReverts() public {
+        address owner = address(0xA1);
+        address spender = address(0xA2);
+
+        vm.prank(FREEZER);
+        stablecoin.freeze(owner);
+
+        vm.prank(owner);
+        vm.expectRevert(abi.encodeWithSelector(Stablecoin.AccountIsFrozen.selector, owner));
+        stablecoin.approve(spender, 1000);
+    }
+
+    /// @notice An owner cannot grant allowance to a frozen spender. Symmetric with
+    /// `_update`'s `whenNotFrozen(to)` policy — the spender can't use it anyway,
+    /// and blocking the grant prevents it from going live on unfreeze.
+    function test_ApproveToFrozenSpenderReverts() public {
+        address owner = address(0xB1);
+        address spender = address(0xB2);
+
+        vm.prank(FREEZER);
+        stablecoin.freeze(spender);
+
+        vm.prank(owner);
+        vm.expectRevert(abi.encodeWithSelector(Stablecoin.AccountIsFrozen.selector, spender));
+        stablecoin.approve(spender, 1000);
+    }
+
+    /// @notice `transferFrom` from a frozen owner reverts at the allowance-decrement
+    /// step (`_spendAllowance` → `_approve`). Confirms the freeze check fires before
+    /// `_update`, surfacing `AccountIsFrozen(owner)` rather than the post-update path.
+    function test_TransferFromFrozenOwnerReverts() public {
+        address owner = address(0xC1);
+        address to = address(0xC2);
+        address spender = address(0xC3);
+
+        // Mint a balance + grant allowance BEFORE freezing.
+        vm.prank(MINTER);
+        stablecoin.mint(owner, 1000);
+
+        vm.prank(owner);
+        stablecoin.approve(spender, 500);
+
+        vm.prank(FREEZER);
+        stablecoin.freeze(owner);
+
+        vm.prank(spender);
+        vm.expectRevert(abi.encodeWithSelector(Stablecoin.AccountIsFrozen.selector, owner));
+        stablecoin.transferFrom(owner, to, 100);
+    }
+
+    /// @notice `transferFrom` by a frozen spender reverts at the allowance-decrement
+    /// step. The `whenNotFrozen(spender)` branch of `_approve` catches it before
+    /// `_update`'s `whenNotFrozen(_msgSender())` would.
+    function test_TransferFromBySpenderWhenFrozenReverts() public {
+        address owner = address(0xD1);
+        address to = address(0xD2);
+        address spender = address(0xD3);
+
+        vm.prank(MINTER);
+        stablecoin.mint(owner, 1000);
+
+        vm.prank(owner);
+        stablecoin.approve(spender, 500);
+
+        vm.prank(FREEZER);
+        stablecoin.freeze(spender);
+
+        vm.prank(spender);
+        vm.expectRevert(abi.encodeWithSelector(Stablecoin.AccountIsFrozen.selector, spender));
+        stablecoin.transferFrom(owner, to, 100);
+    }
+
+    /// @notice After `unfreeze`, allowance operations resume. Proves the freeze block
+    /// is reversible and not a permanent state.
+    function test_ApproveAfterUnfreezeSucceeds() public {
+        address owner = address(0xE1);
+        address spender = address(0xE2);
+
+        vm.prank(FREEZER);
+        stablecoin.freeze(owner);
+
+        vm.prank(owner);
+        vm.expectRevert(abi.encodeWithSelector(Stablecoin.AccountIsFrozen.selector, owner));
+        stablecoin.approve(spender, 1000);
+
+        vm.prank(FREEZER);
+        stablecoin.unfreeze(owner);
+
+        vm.prank(owner);
+        bool ok = stablecoin.approve(spender, 1000);
+        assertTrue(ok);
+        assertEq(stablecoin.allowance(owner, spender), 1000);
+    }
 }
