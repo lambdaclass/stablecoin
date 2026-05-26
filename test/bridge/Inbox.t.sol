@@ -22,6 +22,7 @@ contract MockReceiver is IMessageReceiver {
 
 contract InboxTest is BridgeTestBase {
     MockReceiver public receiver;
+    uint256 public constant SRC_CHAIN = 42;
 
     function setUp() public override {
         super.setUp();
@@ -33,6 +34,8 @@ contract InboxTest is BridgeTestBase {
         bridge.inbox.addAttestor(attestor2);
         bridge.inbox.addAttestor(attestor3);
         bridge.inbox.setThreshold(2);
+        // Register the canonical source Outbox for srcChain=42.
+        bridge.inbox.setSrcOutbox(SRC_CHAIN, address(bridge.outbox));
         vm.stopPrank();
     }
 
@@ -40,8 +43,9 @@ contract InboxTest is BridgeTestBase {
 
     function test_ValidKOfNSignatures() public {
         bytes memory payload = hex"CAFE";
-        bytes32 nonce = bytes32(uint256(1));
-        bytes memory message = _encodeMessage(42, address(0xAAAA), block.chainid, address(receiver), nonce, payload);
+        bytes memory message = _encodeMessage(
+            SRC_CHAIN, address(bridge.outbox), address(0xAAAA), 1, block.chainid, address(receiver), payload
+        );
 
         uint256[] memory pks = new uint256[](2);
         pks[0] = ATTESTOR_PK_1;
@@ -51,14 +55,15 @@ contract InboxTest is BridgeTestBase {
         bridge.inbox.recvMessage(message, sigs);
 
         assertEq(receiver.callCount(), 1);
-        assertEq(receiver.lastSrcChain(), 42);
+        assertEq(receiver.lastSrcChain(), SRC_CHAIN);
         assertEq(receiver.lastSrcSender(), address(0xAAAA));
         assertEq(receiver.lastPayload(), payload);
     }
 
     function test_AllThreeSignatures() public {
-        bytes32 nonce = bytes32(uint256(2));
-        bytes memory message = _encodeMessage(42, address(0xAAAA), block.chainid, address(receiver), nonce, hex"");
+        bytes memory message = _encodeMessage(
+            SRC_CHAIN, address(bridge.outbox), address(0xAAAA), 2, block.chainid, address(receiver), hex""
+        );
 
         uint256[] memory pks = new uint256[](3);
         pks[0] = ATTESTOR_PK_1;
@@ -73,8 +78,9 @@ contract InboxTest is BridgeTestBase {
     // ─── Below threshold ─────────────────────────────────────────────
 
     function test_BelowThresholdReverts() public {
-        bytes32 nonce = bytes32(uint256(3));
-        bytes memory message = _encodeMessage(42, address(0xAAAA), block.chainid, address(receiver), nonce, hex"");
+        bytes memory message = _encodeMessage(
+            SRC_CHAIN, address(bridge.outbox), address(0xAAAA), 3, block.chainid, address(receiver), hex""
+        );
 
         uint256[] memory pks = new uint256[](1);
         pks[0] = ATTESTOR_PK_1;
@@ -87,8 +93,9 @@ contract InboxTest is BridgeTestBase {
     // ─── Invalid signatures ──────────────────────────────────────────
 
     function test_InvalidSignerReverts() public {
-        bytes32 nonce = bytes32(uint256(4));
-        bytes memory message = _encodeMessage(42, address(0xAAAA), block.chainid, address(receiver), nonce, hex"");
+        bytes memory message = _encodeMessage(
+            SRC_CHAIN, address(bridge.outbox), address(0xAAAA), 4, block.chainid, address(receiver), hex""
+        );
 
         // Use a non-attestor private key
         uint256 fakePk = 0xDEAD;
@@ -104,8 +111,9 @@ contract InboxTest is BridgeTestBase {
     // ─── Duplicate signer ────────────────────────────────────────────
 
     function test_DuplicateSignerReverts() public {
-        bytes32 nonce = bytes32(uint256(5));
-        bytes memory message = _encodeMessage(42, address(0xAAAA), block.chainid, address(receiver), nonce, hex"");
+        bytes memory message = _encodeMessage(
+            SRC_CHAIN, address(bridge.outbox), address(0xAAAA), 5, block.chainid, address(receiver), hex""
+        );
 
         // Sign twice with the same key
         bytes32 digest = _inboxDigest(bridge.inbox, message);
@@ -119,8 +127,11 @@ contract InboxTest is BridgeTestBase {
     // ─── Nonce replay ────────────────────────────────────────────────
 
     function test_NonceReplayReverts() public {
-        bytes32 nonce = bytes32(uint256(6));
-        bytes memory message = _encodeMessage(42, address(0xAAAA), block.chainid, address(receiver), nonce, hex"");
+        uint256 srcSeq = 6;
+        bytes memory message = _encodeMessage(
+            SRC_CHAIN, address(bridge.outbox), address(0xAAAA), srcSeq, block.chainid, address(receiver), hex""
+        );
+        bytes32 expectedNonce = _deriveNonce(SRC_CHAIN, address(bridge.outbox), address(0xAAAA), srcSeq);
 
         uint256[] memory pks = new uint256[](2);
         pks[0] = ATTESTOR_PK_1;
@@ -130,8 +141,8 @@ contract InboxTest is BridgeTestBase {
         // First delivery succeeds
         bridge.inbox.recvMessage(message, sigs);
 
-        // Second delivery reverts
-        vm.expectRevert(abi.encodeWithSelector(Inbox.NonceAlreadyUsed.selector, nonce));
+        // Second delivery reverts on the derived nonce.
+        vm.expectRevert(abi.encodeWithSelector(Inbox.NonceAlreadyUsed.selector, expectedNonce));
         bridge.inbox.recvMessage(message, sigs);
     }
 
@@ -139,8 +150,8 @@ contract InboxTest is BridgeTestBase {
 
     function test_WrongDstChainReverts() public {
         uint256 wrongChain = block.chainid + 1;
-        bytes32 nonce = bytes32(uint256(7));
-        bytes memory message = _encodeMessage(42, address(0xAAAA), wrongChain, address(receiver), nonce, hex"");
+        bytes memory message =
+            _encodeMessage(SRC_CHAIN, address(bridge.outbox), address(0xAAAA), 7, wrongChain, address(receiver), hex"");
 
         uint256[] memory pks = new uint256[](2);
         pks[0] = ATTESTOR_PK_1;
@@ -274,14 +285,134 @@ contract InboxTest is BridgeTestBase {
     // ─── Invalid signature length ────────────────────────────────────
 
     function test_InvalidSignatureLengthReverts() public {
-        bytes32 nonce = bytes32(uint256(8));
-        bytes memory message = _encodeMessage(42, address(0xAAAA), block.chainid, address(receiver), nonce, hex"");
+        bytes memory message = _encodeMessage(
+            SRC_CHAIN, address(bridge.outbox), address(0xAAAA), 8, block.chainid, address(receiver), hex""
+        );
 
         // 64 bytes (not a multiple of 65)
         bytes memory badSigs = new bytes(64);
 
         vm.expectRevert(Inbox.InvalidSignatureCount.selector);
         bridge.inbox.recvMessage(message, badSigs);
+    }
+
+    /// @notice The message does not carry a transport nonce — the Inbox derives
+    /// it from `(srcChain, srcOutbox, srcSender, srcSeq)`. Re-attesting the same
+    /// source event under a different transport nonce is not possible; any valid
+    /// attestation for the same source event produces the same key, and the Inbox
+    /// refuses the replay.
+    function test_NoncePoCBlockedByDerivedKey() public {
+        // Without source-bound nonces, "one source burn, two valid attested messages
+        // with different nonces, minting 2× amount on the destination" would be
+        // exploitable. With the derived nonce there is no separate transport nonce
+        // field: the attestors can only sign a
+        // message whose derived nonce matches the source event's `srcSeq`. Re-
+        // submitting the same (srcChain, srcOutbox, srcSender, srcSeq) tuple is
+        // exactly a replay and gets rejected by `usedNonces`.
+        bytes memory message = _encodeMessage(
+            SRC_CHAIN, address(bridge.outbox), address(0xAAAA), 99, block.chainid, address(receiver), hex"FEED"
+        );
+        bytes32 expectedNonce = _deriveNonce(SRC_CHAIN, address(bridge.outbox), address(0xAAAA), 99);
+
+        uint256[] memory pks = new uint256[](2);
+        pks[0] = ATTESTOR_PK_1;
+        pks[1] = ATTESTOR_PK_2;
+        bytes memory sigs = _signMessage(bridge.inbox, message, pks);
+
+        bridge.inbox.recvMessage(message, sigs);
+        assertEq(receiver.callCount(), 1);
+
+        // Replay with the same tuple ⇒ same derived nonce ⇒ rejected.
+        vm.expectRevert(abi.encodeWithSelector(Inbox.NonceAlreadyUsed.selector, expectedNonce));
+        bridge.inbox.recvMessage(message, sigs);
+    }
+
+    /// @notice An attestor quorum cannot bypass the source-event binding by claiming
+    /// the message came from a stranger Outbox: `srcOutboxes[srcChain]` is the
+    /// canonical Outbox, and the Inbox refuses anything else.
+    function test_StrangerSrcOutboxRejected() public {
+        address strangerOutbox = address(0xBEEF);
+        bytes memory message =
+            _encodeMessage(SRC_CHAIN, strangerOutbox, address(0xAAAA), 1, block.chainid, address(receiver), hex"");
+
+        uint256[] memory pks = new uint256[](2);
+        pks[0] = ATTESTOR_PK_1;
+        pks[1] = ATTESTOR_PK_2;
+        bytes memory sigs = _signMessage(bridge.inbox, message, pks);
+
+        vm.expectRevert(
+            abi.encodeWithSelector(Inbox.UnknownSrcOutbox.selector, SRC_CHAIN, strangerOutbox, address(bridge.outbox))
+        );
+        bridge.inbox.recvMessage(message, sigs);
+    }
+
+    /// @notice A message whose `srcChain` has no configured Outbox is rejected.
+    function test_UnconfiguredSrcChainRejected() public {
+        uint256 unconfiguredChain = 7777;
+        bytes memory message = _encodeMessage(
+            unconfiguredChain, address(bridge.outbox), address(0xAAAA), 1, block.chainid, address(receiver), hex""
+        );
+
+        uint256[] memory pks = new uint256[](2);
+        pks[0] = ATTESTOR_PK_1;
+        pks[1] = ATTESTOR_PK_2;
+        bytes memory sigs = _signMessage(bridge.inbox, message, pks);
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                Inbox.UnknownSrcOutbox.selector, unconfiguredChain, address(bridge.outbox), address(0)
+            )
+        );
+        bridge.inbox.recvMessage(message, sigs);
+    }
+
+    /// @notice `setSrcOutbox` refuses to overwrite a non-zero entry directly — the
+    /// operator must explicitly clear first. Prevents the silent "swap Outbox while
+    /// messages are in flight" footgun.
+    function test_SetSrcOutboxRefusesSilentOverwrite() public {
+        // SRC_CHAIN was already wired in setUp.
+        address newOutbox = address(bridge.outbox); // shape-valid candidate
+        vm.prank(ADMIN);
+        vm.expectRevert(abi.encodeWithSelector(Inbox.SrcOutboxAlreadySet.selector, SRC_CHAIN, address(bridge.outbox)));
+        bridge.inbox.setSrcOutbox(SRC_CHAIN, newOutbox);
+    }
+
+    /// @notice `setSrcOutbox(srcChain, address(0))` clears the route. Pause-and-drain
+    /// is the operator-side prerequisite to swapping Outboxes.
+    function test_SetSrcOutboxAllowsClear() public {
+        vm.prank(ADMIN);
+        bridge.inbox.setSrcOutbox(SRC_CHAIN, address(0));
+        assertEq(bridge.inbox.srcOutboxes(SRC_CHAIN), address(0));
+
+        // After clearing, the chain has no canonical Outbox and recvMessage rejects.
+        bytes memory message = _encodeMessage(
+            SRC_CHAIN, address(bridge.outbox), address(0xAAAA), 1, block.chainid, address(receiver), hex""
+        );
+        uint256[] memory pks = new uint256[](2);
+        pks[0] = ATTESTOR_PK_1;
+        pks[1] = ATTESTOR_PK_2;
+        bytes memory sigs = _signMessage(bridge.inbox, message, pks);
+        vm.expectRevert();
+        bridge.inbox.recvMessage(message, sigs);
+    }
+
+    /// @notice `setSrcOutbox` validates candidates the same way `BridgeBurner.setOutbox` does:
+    /// zero-check + bytecode check + ERC-165 advertisement.
+    function test_SetSrcOutboxRejectsEoa() public {
+        address eoa = address(0xCAFEBABE);
+        vm.prank(ADMIN);
+        // No previous entry → goes through validation; EOA has no code.
+        bridge.inbox.setSrcOutbox(123, address(0)); // ensure clear
+        vm.prank(ADMIN);
+        vm.expectRevert(abi.encodeWithSelector(Inbox.InvalidOutbox.selector, eoa));
+        bridge.inbox.setSrcOutbox(123, eoa);
+    }
+
+    function test_OnlyOwnerCanSetSrcOutbox() public {
+        address nonOwner = address(0x9999);
+        vm.prank(nonOwner);
+        vm.expectRevert();
+        bridge.inbox.setSrcOutbox(123, address(0xBEEF));
     }
 
     // ─── Selector collision safety ──────────

@@ -18,12 +18,23 @@ library BridgeConfig {
         address minter;
     }
 
+    /// @notice Maps a source chain id to the canonical Outbox address on that chain.
+    /// Required by the Inbox's replay-protection check. The address bytes are the
+    /// source chain's Outbox proxy; under the standard deterministic-deploy flow
+    /// this equals the *local* Outbox address, since all chains share the same
+    /// CREATE2 derivation.
+    struct SrcOutbox {
+        uint256 srcChain;
+        address outbox;
+    }
+
     struct Config {
         address[] attestors;
         uint256 threshold;
         uint256 minterAllowance;
         AllowedSender[] allowedSenders;
         DstMinter[] dstMinters;
+        SrcOutbox[] srcOutboxes;
     }
 
     error NoAttestors();
@@ -32,6 +43,7 @@ library BridgeConfig {
     error MinterAllowanceZero();
     error ZeroAllowedSender(uint256 index);
     error ZeroDstMinter(uint256 index);
+    error ZeroSrcOutbox(uint256 index);
 
     /// @notice Configure all bridge contracts after deployment.
     /// @dev The caller must have ADMIN_ROLE on the stablecoin and be the owner of
@@ -66,6 +78,15 @@ library BridgeConfig {
         for (uint256 i = 0; i < config.dstMinters.length; ++i) {
             c.bridgeBurner.setDstMinter(config.dstMinters[i].dstChain, config.dstMinters[i].minter);
         }
+
+        // 6. Set Inbox source-outbox map (srcChain => canonical Outbox on that chain).
+        //    Required by the replay-protection check: the Inbox derives the replay
+        //    nonce from `(srcChain, srcOutbox, srcSender, srcSeq)`, so the expected
+        //    `srcOutbox` per chain must be configured before any message from that
+        //    chain can be received.
+        for (uint256 i = 0; i < config.srcOutboxes.length; ++i) {
+            c.inbox.setSrcOutbox(config.srcOutboxes[i].srcChain, config.srcOutboxes[i].outbox);
+        }
     }
 
     /// @dev Validate the entire config before any state changes, so configure either
@@ -88,6 +109,9 @@ library BridgeConfig {
         }
         for (uint256 i = 0; i < config.dstMinters.length; ++i) {
             require(config.dstMinters[i].minter != address(0), ZeroDstMinter(i));
+        }
+        for (uint256 i = 0; i < config.srcOutboxes.length; ++i) {
+            require(config.srcOutboxes[i].outbox != address(0), ZeroSrcOutbox(i));
         }
     }
 }

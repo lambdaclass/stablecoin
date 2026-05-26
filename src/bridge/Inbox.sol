@@ -8,8 +8,10 @@ import {PausableUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/Pau
 import {EIP712Upgradeable} from "@openzeppelin/contracts-upgradeable/utils/cryptography/EIP712Upgradeable.sol";
 import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import {EnumerableSet} from "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
+import {IERC165} from "@openzeppelin/contracts/utils/introspection/IERC165.sol";
 import {IInbox} from "./interfaces/IInbox.sol";
 import {IMessageReceiver} from "./interfaces/IMessageReceiver.sol";
+import {IOutbox} from "./interfaces/IOutbox.sol";
 
 /// @title Inbox
 /// @notice Generic message inbox with k-of-n EIP-712 attestor verification, nonce replay protection,
@@ -40,6 +42,13 @@ contract Inbox is
     /// https://github.com/OpenZeppelin/openzeppelin-contracts/blob/fcbae5394ae8ad52d8e580a3477db99814b9d565/contracts/utils/ReentrancyGuard.sol#L39-L43
     mapping(bytes32 nonce => uint256 used) public usedNonces;
 
+    /// @notice Per-source-chain canonical Outbox address. A message is only accepted
+    /// when its `srcOutbox` field equals `srcOutboxes[srcChain]`. This enforces the
+    /// "one canonical Outbox per source chain" invariant on which the nonce
+    /// derivation depends — the nonce includes `srcOutbox`, so a quorum that signs
+    /// for a stranger Outbox produces a nonce that the Inbox refuses to recognize.
+    mapping(uint256 srcChain => address outbox) public srcOutboxes;
+
     /// @notice Emitted on every successful `recvMessage` delivery.
     event MessageDelivered(bytes32 indexed nonce, address indexed dstRecipient);
     /// @notice Emitted when an address is added to the attestor set.
@@ -48,6 +57,8 @@ contract Inbox is
     event AttestorRemoved(address indexed attestor);
     /// @notice Emitted when the signature threshold is updated.
     event ThresholdSet(uint256 threshold);
+    /// @notice Emitted when the canonical Outbox for `srcChain` is configured or replaced.
+    event SrcOutboxSet(uint256 indexed srcChain, address outbox);
 
     error InvalidSignatureCount();
     error BelowThreshold();
@@ -59,6 +70,22 @@ contract Inbox is
     error AlreadyAttestor(address attestor);
     error NotAttestor(address attestor);
     error InvalidThreshold(uint256 threshold, uint256 attestorCount);
+    /// @notice Thrown by `setSrcOutbox` when a non-zero entry already exists for
+    /// `srcChain`. Operators must explicitly clear the entry (set to `address(0)`)
+    /// during a paused-and-drained window before pointing at a new Outbox; this
+    /// guards against the "swap Outbox while messages are in flight" footgun, in
+    /// which already-signed messages reference the old `srcOutbox` and would be
+    /// rejected silently after the swap.
+    error SrcOutboxAlreadySet(uint256 srcChain, address current);
+    /// @notice Thrown by `recvMessage` when the message's `srcOutbox` does not
+    /// match the configured `srcOutboxes[srcChain]`. Without this check, attestors
+    /// could sign messages that claim to originate from any Outbox; with it, the
+    /// derived nonce is only valid when computed against the canonical source
+    /// Outbox.
+    error UnknownSrcOutbox(uint256 srcChain, address claimed, address expected);
+    /// @notice Thrown by `setSrcOutbox` when the candidate has no bytecode or
+    /// does not advertise `IOutbox` via ERC-165. Mirrors `BridgeBurner._validateOutbox`.
+    error InvalidOutbox(address outbox);
 
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
@@ -125,22 +152,77 @@ contract Inbox is
         emit ThresholdSet(threshold_);
     }
 
+    /// @notice Configure or clear the canonical Outbox address for a source chain.
+    /// @dev Pass `outbox = address(0)` to clear a route — this is the operator-side
+    /// step required before swapping a chain's Outbox: pause, drain in-flight, clear
+    /// here, then set the new Outbox.
+    ///
+    /// When setting a non-zero outbox, the candidate must (a) have bytecode and
+    /// (b) advertise `IOutbox` via ERC-165. The two checks mirror
+    /// `BridgeBurner._validateOutbox` and catch the most common operator typos
+    /// (EOA, unrelated contract, undeployed CREATE2 target).
+    ///
+    /// Refuses to overwrite a non-zero entry — the operator must clear first.
+    /// This prevents the silent "swap Outbox while messages are in flight" footgun.
+    /// @param srcChain Source chain id whose Outbox to (re)configure.
+    /// @param outbox  Canonical Outbox address on that chain, or `address(0)` to clear.
+    function setSrcOutbox(uint256 srcChain, address outbox) external onlyOwner {
+        address current = srcOutboxes[srcChain];
+        if (outbox == address(0)) {
+            srcOutboxes[srcChain] = address(0);
+            emit SrcOutboxSet(srcChain, address(0));
+            return;
+        }
+        require(current == address(0), SrcOutboxAlreadySet(srcChain, current));
+        _validateOutbox(outbox);
+        srcOutboxes[srcChain] = outbox;
+        emit SrcOutboxSet(srcChain, outbox);
+    }
+
+    /// @dev Validate that `outbox_` is a contract advertising `IOutbox` via ERC-165.
+    /// Same shape as `BridgeBurner._validateOutbox` — the explicit `code.length`
+    /// check routes EOAs through `InvalidOutbox` instead of solc's lower-level
+    /// "call to non-contract address" revert that try/catch does not catch.
+    function _validateOutbox(address outbox_) internal view {
+        require(outbox_.code.length > 0, InvalidOutbox(outbox_));
+        try IERC165(outbox_).supportsInterface(type(IOutbox).interfaceId) returns (bool ok) {
+            require(ok, InvalidOutbox(outbox_));
+        } catch {
+            revert InvalidOutbox(outbox_);
+        }
+    }
+
     // ─── Message reception ───────────────────────────────────────────
 
     /// @inheritdoc IInbox
     function recvMessage(bytes calldata message, bytes calldata signatures) external whenNotPaused {
-        // Decode the transport-level message
+        // Decode the transport-level message. The transport nonce is not part of
+        // the wire format — it is derived from a subset of the signed fields, so
+        // attestors cannot choose it independently of the source event.
         (
             uint256 srcChain,
+            address srcOutbox,
             address srcSender,
+            uint256 srcSeq,
             uint256 dstChain,
             address dstRecipient,
-            bytes32 nonce,
             bytes memory payload
-        ) = abi.decode(message, (uint256, address, uint256, address, bytes32, bytes));
+        ) = abi.decode(message, (uint256, address, address, uint256, uint256, address, bytes));
 
         // Check destination chain
         require(dstChain == block.chainid, WrongDestinationChain(block.chainid, dstChain));
+
+        // Authenticate the source Outbox: must match the canonical entry for `srcChain`.
+        // A zero entry (route disabled) or a different entry both reject the message.
+        address expectedOutbox = srcOutboxes[srcChain];
+        require(
+            expectedOutbox != address(0) && srcOutbox == expectedOutbox,
+            UnknownSrcOutbox(srcChain, srcOutbox, expectedOutbox)
+        );
+
+        // Derive the replay-protection nonce. Must use the SAME field encoding as
+        // `Outbox.sendMessage` so a valid source event produces a matching key.
+        bytes32 nonce = keccak256(abi.encode(srcChain, srcOutbox, srcSender, srcSeq));
 
         // Check nonce replay
         require(usedNonces[nonce] == 0, NonceAlreadyUsed(nonce));

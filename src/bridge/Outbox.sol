@@ -9,10 +9,22 @@ import {IERC165} from "@openzeppelin/contracts/utils/introspection/IERC165.sol";
 import {IOutbox} from "./interfaces/IOutbox.sol";
 
 /// @title Outbox
-/// @notice Generic message outbox. Accepts messages and emits events for the off-chain attestation service.
-/// Stateless: does not track messages or nonces.
+/// @notice Generic message outbox. Accepts messages, assigns a per-sender sequence
+/// number, derives a source-bound nonce, and emits an event for the off-chain
+/// attestation service.
+///
+/// The Outbox is stateful: it maintains one monotonic counter per `msg.sender`.
+/// The counter is the input the destination Inbox needs to recompute and verify
+/// the replay-protection nonce; without it, attestors could sign multiple valid
+/// attestations for the same source event under different transport nonces.
+///
 /// @custom:security-contact security@lambdaclass.com
 contract Outbox is Initializable, Ownable2StepUpgradeable, PausableUpgradeable, UUPSUpgradeable, IOutbox {
+    /// @notice Per-sender monotonic counter consumed by `sendMessage`. Each
+    /// application contract (e.g., BridgeBurner) has its own counter, so two
+    /// senders cannot collide on `srcSeq` even though they share an Outbox.
+    mapping(address sender => uint256 seq) public nextSeq;
+
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
         _disableInitializers();
@@ -26,8 +38,20 @@ contract Outbox is Initializable, Ownable2StepUpgradeable, PausableUpgradeable, 
     }
 
     /// @inheritdoc IOutbox
-    function sendMessage(uint256 dstChain, address dstRecipient, bytes calldata payload) external whenNotPaused {
-        emit MessageSent(msg.sender, dstChain, dstRecipient, payload);
+    function sendMessage(uint256 dstChain, address dstRecipient, bytes calldata payload)
+        external
+        whenNotPaused
+        returns (uint256 srcSeq, bytes32 nonce)
+    {
+        srcSeq = nextSeq[msg.sender];
+        // Bind the nonce to the (source chain, source Outbox, source sender, srcSeq) tuple.
+        // The Inbox on the destination chain recomputes this and uses it as the replay key,
+        // so attestors cannot produce a valid attestation for any nonce other than this one.
+        nonce = keccak256(abi.encode(block.chainid, address(this), msg.sender, srcSeq));
+        // Effects before further interactions — even though we don't make any here, this
+        // ordering keeps the contract reentrancy-safe if a future change introduces one.
+        nextSeq[msg.sender] = srcSeq + 1;
+        emit MessageSent(msg.sender, dstChain, dstRecipient, srcSeq, nonce, payload);
     }
 
     /// @notice ERC-165 marker so consumers (e.g. BridgeBurner) can verify they have

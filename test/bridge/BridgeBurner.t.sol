@@ -35,10 +35,15 @@ contract BridgeBurnerTest is BridgeTestBase {
         vm.prank(user);
         stablecoin.approve(address(bridge.bridgeBurner), amount);
 
-        // Expect the Outbox MessageSent event
+        // Expect the Outbox MessageSent event: it carries the per-sender srcSeq
+        // plus the derived source-bound nonce.
         bytes memory expectedPayload = TokenMintMessage.encode(recipient, amount);
+        bytes32 expectedNonce =
+            keccak256(abi.encode(block.chainid, address(bridge.outbox), address(bridge.bridgeBurner), uint256(0)));
         vm.expectEmit(true, true, true, true, address(bridge.outbox));
-        emit IOutbox.MessageSent(address(bridge.bridgeBurner), DST_CHAIN, address(0xBEEF), expectedPayload);
+        emit IOutbox.MessageSent(
+            address(bridge.bridgeBurner), DST_CHAIN, address(0xBEEF), 0, expectedNonce, expectedPayload
+        );
 
         vm.prank(user);
         bridge.bridgeBurner.sendTo(DST_CHAIN, recipient, amount);
