@@ -116,15 +116,27 @@ contract FormalTestBase is Test {
         }
     }
 
+    /// @dev H-04 wire format: (srcChain, srcOutbox, srcSender, srcSeq, dstChain, dstRecipient, payload).
+    /// The Inbox recomputes the replay nonce from (srcChain, srcOutbox, srcSender, srcSeq).
     function _encodeMessage(
         uint256 srcChain,
+        address srcOutbox,
         address srcSender,
+        uint256 srcSeq,
         uint256 dstChain,
         address dstRecipient,
-        bytes32 nonce,
         bytes memory payload
     ) internal pure returns (bytes memory) {
-        return abi.encode(srcChain, srcSender, dstChain, dstRecipient, nonce, payload);
+        return abi.encode(srcChain, srcOutbox, srcSender, srcSeq, dstChain, dstRecipient, payload);
+    }
+
+    /// @dev Mirror of the Inbox's nonce derivation, for proofs that assert on `usedNonces`.
+    function _deriveNonce(uint256 srcChain, address srcOutbox, address srcSender, uint256 srcSeq)
+        internal
+        pure
+        returns (bytes32)
+    {
+        return keccak256(abi.encode(srcChain, srcOutbox, srcSender, srcSeq));
     }
 }
 
@@ -137,6 +149,11 @@ contract FormalTestBase is Test {
 contract InboxFormalTest is FormalTestBase {
     AlwaysSucceedsReceiver public receiver;
 
+    /// @dev Concrete source chain id used by the proofs; its canonical Outbox is
+    /// configured in setUp so messages pass the H-04 `srcOutboxes` check.
+    uint256 internal constant SRC_CHAIN = 42;
+    address internal constant SRC_SENDER = address(0xAAAA);
+
     function setUp() public override {
         super.setUp();
         receiver = new AlwaysSucceedsReceiver();
@@ -146,22 +163,28 @@ contract InboxFormalTest is FormalTestBase {
         inbox.addAttestor(attestor2);
         inbox.addAttestor(attestor3);
         inbox.setThreshold(2);
+        // H-04: register the canonical source Outbox for SRC_CHAIN so deliveries
+        // pass the srcOutbox authentication and reach the property under test.
+        inbox.setSrcOutbox(SRC_CHAIN, address(outbox));
         vm.stopPrank();
     }
 
     // ─── Nonce replay protection ──────────────────────────────────────────────
 
-    /// @notice PROOF: For ALL nonces, once consumed, replaying the same message
-    /// always reverts.
-    function check_nonceReplayAlwaysReverts(bytes32 nonce) public {
-        bytes memory message = _encodeMessage(42, address(0xAAAA), block.chainid, address(receiver), nonce, hex"");
+    /// @notice PROOF: For ALL source sequence numbers, once a message is consumed,
+    /// replaying the same message always reverts. The replay key is the H-04
+    /// derived nonce `keccak256(srcChain, srcOutbox, srcSender, srcSeq)`.
+    function check_nonceReplayAlwaysReverts(uint256 srcSeq) public {
+        bytes memory message =
+            _encodeMessage(SRC_CHAIN, address(outbox), SRC_SENDER, srcSeq, block.chainid, address(receiver), hex"");
+        bytes32 nonce = _deriveNonce(SRC_CHAIN, address(outbox), SRC_SENDER, srcSeq);
 
         uint256[] memory pks = new uint256[](2);
         pks[0] = ATTESTOR_PK_1;
         pks[1] = ATTESTOR_PK_2;
         bytes memory sigs = _signMessage(message, pks);
 
-        // First delivery consumes the nonce
+        // First delivery consumes the derived nonce
         inbox.recvMessage(message, sigs);
         assert(inbox.usedNonces(nonce) == 1);
 
@@ -172,21 +195,17 @@ contract InboxFormalTest is FormalTestBase {
 
     // ─── Destination chain enforcement ────────────────────────────────────────
 
-    /// @notice PROOF: Messages targeting a different chain ALWAYS revert,
-    /// for ALL message contents and ALL signature bytes.
-    ///
-    /// The chain check (Inbox L121) is the first validation after decoding,
-    /// so no combination of other fields or signatures can bypass it.
-    function check_wrongChainAlwaysReverts(
-        uint256 srcChain,
-        address srcSender,
-        uint256 dstChain,
-        address dstRecipient,
-        bytes32 nonce
-    ) public {
+    /// @notice PROOF: Messages targeting a different chain ALWAYS revert. The
+    /// destination-chain check is the first validation after decoding and does not
+    /// depend on any other field, so it is sufficient to symbolically vary `dstChain`
+    /// while holding the remaining fields concrete (a configured, otherwise-valid
+    /// message). Keeping the other fields concrete also avoids a Halmos
+    /// symbolic-CALLDATACOPY limitation when decoding a fully-symbolic envelope.
+    function check_wrongChainAlwaysReverts(uint256 dstChain) public {
         vm.assume(dstChain != block.chainid);
 
-        bytes memory message = _encodeMessage(srcChain, srcSender, dstChain, dstRecipient, nonce, hex"");
+        bytes memory message =
+            _encodeMessage(SRC_CHAIN, address(outbox), SRC_SENDER, 0, dstChain, address(receiver), hex"");
 
         (bool success,) = address(inbox).call(abi.encodeCall(inbox.recvMessage, (message, hex"")));
         assert(!success);
@@ -202,13 +221,19 @@ contract InboxFormalTest is FormalTestBase {
     /// @dev `Inbox.setThreshold` now refuses `threshold_ == 0` (PR #4 invariant),
     /// so we exercise the implicit zero state by deploying a fresh Inbox whose
     /// `threshold` has never been set rather than calling `setThreshold(0)`.
-    function check_zeroThresholdFailsClosed(bytes32 nonce) public {
+    function check_zeroThresholdFailsClosed(uint256 srcSeq) public {
         Inbox freshInboxImpl = new Inbox();
         ERC1967Proxy freshInboxProxy =
             new ERC1967Proxy(address(freshInboxImpl), abi.encodeCall(Inbox.initialize, (ADMIN)));
         Inbox freshInbox = Inbox(address(freshInboxProxy));
 
-        bytes memory message = _encodeMessage(42, address(0xAAAA), block.chainid, address(receiver), nonce, hex"");
+        // Configure the source Outbox so the message clears the srcOutbox check and
+        // reaches the (unconfigured, zero) threshold check — the property under test.
+        vm.prank(ADMIN);
+        freshInbox.setSrcOutbox(SRC_CHAIN, address(outbox));
+
+        bytes memory message =
+            _encodeMessage(SRC_CHAIN, address(outbox), SRC_SENDER, srcSeq, block.chainid, address(receiver), hex"");
 
         // 130 zero bytes: passes length alignment but reaches the threshold check.
         bytes memory sigs = new bytes(130);
@@ -222,8 +247,9 @@ contract InboxFormalTest is FormalTestBase {
     /// @notice PROOF: A single 65-byte signature when threshold = 2 ALWAYS reverts.
     /// Proves the `sigCount >= threshold` check (Inbox L154).
     /// Uses dummy bytes (not valid sigs) since the count check precedes recovery.
-    function check_singleSigBelowThresholdReverts(bytes32 nonce) public {
-        bytes memory message = _encodeMessage(42, address(0xAAAA), block.chainid, address(receiver), nonce, hex"");
+    function check_singleSigBelowThresholdReverts(uint256 srcSeq) public {
+        bytes memory message =
+            _encodeMessage(SRC_CHAIN, address(outbox), SRC_SENDER, srcSeq, block.chainid, address(receiver), hex"");
 
         // 65 zero bytes: passes length alignment (L153) but fails sigCount >= 2 (L154)
         bytes memory sigs = new bytes(65);
@@ -233,8 +259,9 @@ contract InboxFormalTest is FormalTestBase {
     }
 
     /// @notice PROOF: Zero-length signatures ALWAYS revert.
-    function check_zeroSignaturesReverts(bytes32 nonce) public {
-        bytes memory message = _encodeMessage(42, address(0xAAAA), block.chainid, address(receiver), nonce, hex"");
+    function check_zeroSignaturesReverts(uint256 srcSeq) public {
+        bytes memory message =
+            _encodeMessage(SRC_CHAIN, address(outbox), SRC_SENDER, srcSeq, block.chainid, address(receiver), hex"");
 
         (bool success,) = address(inbox).call(abi.encodeCall(inbox.recvMessage, (message, hex"")));
         assert(!success);
@@ -242,11 +269,14 @@ contract InboxFormalTest is FormalTestBase {
 
     // ─── Delivery postcondition ───────────────────────────────────────────────
 
-    /// @notice PROOF: For ALL nonces, successful delivery sets usedNonces[nonce] = 1.
-    function check_deliveryConsumesNonce(bytes32 nonce) public {
+    /// @notice PROOF: For ALL source sequence numbers, successful delivery sets
+    /// `usedNonces[derivedNonce] = 1`.
+    function check_deliveryConsumesNonce(uint256 srcSeq) public {
+        bytes32 nonce = _deriveNonce(SRC_CHAIN, address(outbox), SRC_SENDER, srcSeq);
         assert(inbox.usedNonces(nonce) == 0);
 
-        bytes memory message = _encodeMessage(42, address(0xAAAA), block.chainid, address(receiver), nonce, hex"");
+        bytes memory message =
+            _encodeMessage(SRC_CHAIN, address(outbox), SRC_SENDER, srcSeq, block.chainid, address(receiver), hex"");
 
         uint256[] memory pks = new uint256[](2);
         pks[0] = ATTESTOR_PK_1;
