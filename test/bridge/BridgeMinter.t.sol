@@ -111,4 +111,64 @@ contract BridgeMinterTest is BridgeTestBase {
         bridge.bridgeMinter.setStablecoin(address(stablecoin));
         assertEq(address(bridge.bridgeMinter.stablecoin()), address(stablecoin));
     }
+
+    /// @notice A successful `handleMessage` increments `totalMintedFrom[srcChain]` by
+    /// `amount` and emits `RouteMinted` with the running total.
+    function test_RouteAccountingIncrementsOnHandleMessage() public {
+        address recipient = address(0xBEEF);
+        uint256 amount = 500e6;
+
+        assertEq(bridge.bridgeMinter.totalMintedFrom(SRC_CHAIN), 0);
+
+        bytes memory payload = TokenMintMessage.encode(recipient, amount);
+        vm.expectEmit(true, true, false, true, address(bridge.bridgeMinter));
+        emit BridgeMinter.RouteMinted(SRC_CHAIN, recipient, amount, amount);
+        vm.prank(address(bridge.inbox));
+        bridge.bridgeMinter.handleMessage(SRC_CHAIN, SRC_SENDER, payload);
+
+        assertEq(bridge.bridgeMinter.totalMintedFrom(SRC_CHAIN), amount);
+
+        // Second message accumulates.
+        bytes memory payload2 = TokenMintMessage.encode(recipient, 250e6);
+        vm.expectEmit(true, true, false, true, address(bridge.bridgeMinter));
+        emit BridgeMinter.RouteMinted(SRC_CHAIN, recipient, 250e6, 750e6);
+        vm.prank(address(bridge.inbox));
+        bridge.bridgeMinter.handleMessage(SRC_CHAIN, SRC_SENDER, payload2);
+
+        assertEq(bridge.bridgeMinter.totalMintedFrom(SRC_CHAIN), 750e6);
+    }
+
+    /// @notice Counters are independent per source chain.
+    function test_RouteAccountingPerSrcChainIsolation() public {
+        uint256 otherChain = SRC_CHAIN + 1;
+        address otherSender = address(0xBBBB);
+        address recipient = address(0xBEEF);
+
+        vm.prank(ADMIN);
+        bridge.bridgeMinter.setAllowedSender(otherChain, otherSender);
+
+        bytes memory payload = TokenMintMessage.encode(recipient, 100e6);
+
+        vm.prank(address(bridge.inbox));
+        bridge.bridgeMinter.handleMessage(SRC_CHAIN, SRC_SENDER, payload);
+
+        vm.prank(address(bridge.inbox));
+        bridge.bridgeMinter.handleMessage(otherChain, otherSender, TokenMintMessage.encode(recipient, 200e6));
+
+        assertEq(bridge.bridgeMinter.totalMintedFrom(SRC_CHAIN), 100e6);
+        assertEq(bridge.bridgeMinter.totalMintedFrom(otherChain), 200e6);
+    }
+
+    /// @notice A `handleMessage` that reverts (e.g., disallowed sender) does NOT
+    /// increment the counter. The storage write is rolled back with the rest of the
+    /// transaction.
+    function test_RouteAccountingNotIncrementedOnRevert() public {
+        bytes memory payload = TokenMintMessage.encode(address(0xBEEF), 100e6);
+
+        vm.prank(address(bridge.inbox));
+        vm.expectRevert();
+        bridge.bridgeMinter.handleMessage(SRC_CHAIN, address(0xBADBAD), payload);
+
+        assertEq(bridge.bridgeMinter.totalMintedFrom(SRC_CHAIN), 0);
+    }
 }

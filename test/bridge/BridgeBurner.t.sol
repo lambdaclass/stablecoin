@@ -47,6 +47,61 @@ contract BridgeBurnerTest is BridgeTestBase {
         assertEq(stablecoin.balanceOf(user), MINT_AMOUNT - amount);
     }
 
+    /// @notice `sendTo` increments `totalBurnedTo[dstChain]` by `amount` and emits
+    /// `RouteBurned` with the running total. Multiple sends accumulate.
+    function test_RouteAccountingIncrementsOnSendTo() public {
+        address recipient = address(0xDEAD);
+
+        vm.prank(user);
+        stablecoin.approve(address(bridge.bridgeBurner), 1500e6);
+
+        assertEq(bridge.bridgeBurner.totalBurnedTo(DST_CHAIN), 0);
+
+        vm.expectEmit(true, true, false, true, address(bridge.bridgeBurner));
+        emit BridgeBurner.RouteBurned(DST_CHAIN, recipient, 1000e6, 1000e6);
+        vm.prank(user);
+        bridge.bridgeBurner.sendTo(DST_CHAIN, recipient, 1000e6);
+        assertEq(bridge.bridgeBurner.totalBurnedTo(DST_CHAIN), 1000e6);
+
+        vm.expectEmit(true, true, false, true, address(bridge.bridgeBurner));
+        emit BridgeBurner.RouteBurned(DST_CHAIN, recipient, 500e6, 1500e6);
+        vm.prank(user);
+        bridge.bridgeBurner.sendTo(DST_CHAIN, recipient, 500e6);
+        assertEq(bridge.bridgeBurner.totalBurnedTo(DST_CHAIN), 1500e6);
+    }
+
+    /// @notice Counters are independent per destination chain. Sending to chain A does
+    /// not bleed into chain B's ledger.
+    function test_RouteAccountingPerDstChainIsolation() public {
+        uint256 otherChain = DST_CHAIN + 1;
+        address recipient = address(0xDEAD);
+
+        vm.prank(ADMIN);
+        bridge.bridgeBurner.setDstMinter(otherChain, address(0xCAFE));
+
+        vm.prank(user);
+        stablecoin.approve(address(bridge.bridgeBurner), 800e6);
+
+        vm.prank(user);
+        bridge.bridgeBurner.sendTo(DST_CHAIN, recipient, 300e6);
+        vm.prank(user);
+        bridge.bridgeBurner.sendTo(otherChain, recipient, 500e6);
+
+        assertEq(bridge.bridgeBurner.totalBurnedTo(DST_CHAIN), 300e6);
+        assertEq(bridge.bridgeBurner.totalBurnedTo(otherChain), 500e6);
+    }
+
+    /// @notice A failed `sendTo` (e.g., insufficient allowance) does not increment the
+    /// counter — overall transaction revert rolls back the storage write.
+    function test_RouteAccountingNotIncrementedOnRevert() public {
+        // No approval — `burnFrom` reverts.
+        vm.prank(user);
+        vm.expectRevert();
+        bridge.bridgeBurner.sendTo(DST_CHAIN, address(0xDEAD), 1000e6);
+
+        assertEq(bridge.bridgeBurner.totalBurnedTo(DST_CHAIN), 0);
+    }
+
     function test_RevertsWithoutApproval() public {
         vm.prank(user);
         vm.expectRevert(); // ERC20 insufficient allowance
