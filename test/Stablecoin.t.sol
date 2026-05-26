@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 pragma solidity =0.8.30;
 
-import {Test} from "forge-std/Test.sol";
+import {Test, Vm} from "forge-std/Test.sol";
 import {Stablecoin} from "../src/Stablecoin.sol";
 import {
     ERC1967Proxy
@@ -1529,5 +1529,74 @@ contract StablecoinTest is Test {
         vm.prank(newMinter);
         vm.expectRevert(expectedError);
         stablecoin.mint(address(2), 100);
+    }
+
+    /// @notice A minter who renounces MINTER_ROLE leaves no stale allowance state behind.
+    /// `_revokeRole` clears `_minterAllowances` and emits `MinterRemoved`, so the address
+    /// is fully cleaned up and can be re-added with `addMinter` afterwards.
+    function test_RenounceMinterClearsAllowanceAndEmits() public {
+        // MINTER was added in setUp with allowance 1000.
+        bytes32 minterRole = stablecoin.MINTER_ROLE();
+        assertTrue(stablecoin.hasRole(minterRole, MINTER));
+        assertEq(stablecoin.minterAllowance(MINTER), 1000);
+
+        vm.prank(MINTER);
+        vm.expectEmit();
+        emit Stablecoin.MinterRemoved(MINTER);
+        stablecoin.renounceRole(minterRole, MINTER);
+
+        // Role gone, allowance cleared, no longer enumerated.
+        assertFalse(stablecoin.hasRole(minterRole, MINTER));
+        assertEq(stablecoin.minterAllowance(MINTER), 0);
+        assertEq(stablecoin.getMinterCount(), 0);
+
+        // Subsequent admin ops on the renounced address surface a clean error.
+        vm.prank(ADMIN);
+        vm.expectPartialRevert(Stablecoin.MinterDoesNotExist.selector);
+        stablecoin.removeMinter(MINTER);
+
+        // Re-adding works cleanly — fresh slot, fresh allowance.
+        vm.prank(ADMIN);
+        stablecoin.addMinter(MINTER, 4242);
+        assertEq(stablecoin.minterAllowance(MINTER), 4242);
+    }
+
+    /// @notice `removeMinter` emits exactly one `MinterRemoved` event after the centralization
+    /// in `_revokeRole` (no double-emit).
+    function test_RemoveMinterSingleEmit() public {
+        vm.prank(ADMIN);
+        vm.recordLogs();
+        stablecoin.removeMinter(MINTER);
+
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+        uint256 count = 0;
+        bytes32 topic = keccak256("MinterRemoved(address)");
+        for (uint256 i = 0; i < logs.length; ++i) {
+            if (logs[i].topics.length > 0 && logs[i].topics[0] == topic) {
+                ++count;
+            }
+        }
+        assertEq(count, 1, "expected exactly one MinterRemoved emission");
+    }
+
+    /// @notice Renouncing MINTER_ROLE on an address that doesn't hold it is a no-op:
+    /// OZ's `_revokeRole` returns false, our override skips the cleanup, and no
+    /// spurious `MinterRemoved` is emitted.
+    function test_RenounceMinterByNonMinterDoesNotEmit() public {
+        address nonMinter = address(0xBEEF);
+        bytes32 minterRole = stablecoin.MINTER_ROLE();
+        assertFalse(stablecoin.hasRole(minterRole, nonMinter));
+
+        vm.recordLogs();
+        vm.prank(nonMinter);
+        stablecoin.renounceRole(minterRole, nonMinter);
+
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+        bytes32 minterRemovedTopic = keccak256("MinterRemoved(address)");
+        for (uint256 i = 0; i < logs.length; ++i) {
+            if (logs[i].topics.length > 0 && logs[i].topics[0] == minterRemovedTopic) {
+                fail("unexpected MinterRemoved emission for non-minter renounce");
+            }
+        }
     }
 }

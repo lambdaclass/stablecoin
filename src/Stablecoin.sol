@@ -238,17 +238,15 @@ contract Stablecoin is
         emit MinterAdded(newMinter, allowance);
     }
 
-    /// @dev Revokes MINTER_ROLE and clears the minting allowance atomically.
-    /// _revokeRole returns false when the role was not held, so the pre-check via
-    /// hasRole is redundant.
+    /// @dev Revokes MINTER_ROLE. Allowance clearing and the `MinterRemoved` event
+    /// are emitted from the centralized `_revokeRole` override below, so this
+    /// function only needs to guard against revoking a non-minter.
     ///
     /// Available while paused so an emergency response (pause) does not block emergency
     /// revocation of a suspected-compromised minter. Token movements are still blocked
     /// by `_update`'s pause check, so this does not open a new token-flow path.
     function removeMinter(address minter) public onlyRole(ADMIN_ROLE) {
         require(_revokeRole(MINTER_ROLE, minter), MinterDoesNotExist(minter));
-        delete _minterAllowances[minter];
-        emit MinterRemoved(minter);
     }
 
     /// @dev Applies a signed `delta` to the minter's allowance, relative to its current value.
@@ -380,11 +378,25 @@ contract Stablecoin is
     }
 
     /// @dev Centralized revoke hook for both `revokeRole` and `renounceRole`.
+    ///
     /// For ADMIN_ROLE: rejects revocations targeting a non-holder (closes OZ's
     /// silent-no-op path, which would otherwise mask a typo'd address after a
     /// matured timelock window) and refuses to remove the last remaining
     /// holder (ADMIN_ROLE is its own admin, so a zero-admin state is
-    /// unrecoverable on-chain). For other roles, behaves like OZ.
+    /// unrecoverable on-chain).
+    ///
+    /// For MINTER_ROLE: clears `_minterAllowances[account]` and emits
+    /// `MinterRemoved` whenever a revoke actually changes role state, so the
+    /// bookkeeping stays in sync regardless of whether the revoke flowed
+    /// through `removeMinter` (admin) or `renounceRole` (minter self-renounce).
+    /// Without this branch the renounce path leaves a stale allowance entry
+    /// and subsequent `removeMinter` / `modifyMinterAllowance` calls revert
+    /// with `MinterDoesNotExist` — observable as a permanent slot leak in
+    /// `getAllMinters()` and operator tooling.
+    ///
+    /// The branch is gated on `super._revokeRole(...) == true` so a
+    /// `renounceRole(MINTER_ROLE, nonMinter)` no-op does NOT emit a spurious
+    /// `MinterRemoved`.
     function _revokeRole(bytes32 role, address account)
         internal
         override(AccessControlEnumerableUpgradeable)
@@ -394,6 +406,11 @@ contract Stablecoin is
             if (!hasRole(ADMIN_ROLE, account)) revert NotAnAdmin(account);
             if (getRoleMemberCount(ADMIN_ROLE) == 1) revert AdminRoleCannotBeEmpty();
         }
-        return super._revokeRole(role, account);
+        bool revoked = super._revokeRole(role, account);
+        if (revoked && role == MINTER_ROLE) {
+            delete _minterAllowances[account];
+            emit MinterRemoved(account);
+        }
+        return revoked;
     }
 }
