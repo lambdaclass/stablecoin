@@ -43,6 +43,16 @@ contract StablecoinTimelock is TimelockController {
     /// `_revokeRole` would silently return `false` at execute time after the
     /// `minDelay` window had already elapsed.
     error NotAnAdmin(address account);
+    /// @dev `scheduleRevokeBurner` was called with an address that does not hold
+    /// `BURNER_ROLE`. See `scheduleRevokeBurner` for why this guard matters and
+    /// how it differs from the admin path.
+    error NotABurner(address account);
+    /// @dev `scheduleRevokePauser` was called with an address that does not hold
+    /// `PAUSER_ROLE`. See `scheduleRevokeBurner` for the shared rationale.
+    error NotAPauser(address account);
+    /// @dev `scheduleRevokeFreezer` was called with an address that does not hold
+    /// `FREEZER_ROLE`. See `scheduleRevokeBurner` for the shared rationale.
+    error NotAFreezer(address account);
 
     constructor(
         Stablecoin stablecoin_,
@@ -80,6 +90,63 @@ contract StablecoinTimelock is TimelockController {
     function scheduleRevokeAdmin(address oldAdmin, bytes32 salt, uint256 delay) external {
         if (!stablecoin.hasRole(stablecoin.ADMIN_ROLE(), oldAdmin)) revert NotAnAdmin(oldAdmin);
         bytes memory data = abi.encodeCall(stablecoin.revokeRole, (stablecoin.ADMIN_ROLE(), oldAdmin));
+        _scheduleStablecoinCall(data, salt, delay);
+    }
+
+    /// @notice Schedules `grantRole(BURNER_ROLE, account)` on the bound stablecoin.
+    /// @dev `BURNER_ROLE`'s role admin is `ADMIN_ROLE`, which this timelock holds,
+    /// so the matured operation is authorized at execute time.
+    function scheduleGrantBurner(address account, bytes32 salt, uint256 delay) external {
+        bytes memory data = abi.encodeCall(stablecoin.grantRole, (stablecoin.BURNER_ROLE(), account));
+        _scheduleStablecoinCall(data, salt, delay);
+    }
+
+    /// @notice Schedules `revokeRole(BURNER_ROLE, account)` on the bound stablecoin.
+    /// @dev Rejects `account` values that do not currently hold `BURNER_ROLE`, for
+    /// the same reason as `scheduleRevokeAdmin`: OZ's `_revokeRole` silently no-ops
+    /// on a non-holder, so without this guard a typo'd address would burn the full
+    /// `minDelay` window before failing to do anything at execute time.
+    ///
+    /// Unlike `ADMIN_ROLE`, `Stablecoin._revokeRole` applies no extra guard to
+    /// `BURNER_ROLE`, so this schedule-time check is the *only* line of defense —
+    /// a proposer bypassing the helper via raw `schedule(...)` would still hit the
+    /// silent no-op at execute time. There is likewise no last-holder guard, so
+    /// revoking the sole burner is permitted.
+    function scheduleRevokeBurner(address account, bytes32 salt, uint256 delay) external {
+        if (!stablecoin.hasRole(stablecoin.BURNER_ROLE(), account)) revert NotABurner(account);
+        bytes memory data = abi.encodeCall(stablecoin.revokeRole, (stablecoin.BURNER_ROLE(), account));
+        _scheduleStablecoinCall(data, salt, delay);
+    }
+
+    /// @notice Schedules `grantRole(PAUSER_ROLE, account)` on the bound stablecoin.
+    /// @dev `PAUSER_ROLE`'s role admin is `ADMIN_ROLE`, which this timelock holds.
+    function scheduleGrantPauser(address account, bytes32 salt, uint256 delay) external {
+        bytes memory data = abi.encodeCall(stablecoin.grantRole, (stablecoin.PAUSER_ROLE(), account));
+        _scheduleStablecoinCall(data, salt, delay);
+    }
+
+    /// @notice Schedules `revokeRole(PAUSER_ROLE, account)` on the bound stablecoin.
+    /// @dev Rejects non-holders at schedule time; see `scheduleRevokeBurner` for the
+    /// rationale and the admin-path asymmetry that applies identically here.
+    function scheduleRevokePauser(address account, bytes32 salt, uint256 delay) external {
+        if (!stablecoin.hasRole(stablecoin.PAUSER_ROLE(), account)) revert NotAPauser(account);
+        bytes memory data = abi.encodeCall(stablecoin.revokeRole, (stablecoin.PAUSER_ROLE(), account));
+        _scheduleStablecoinCall(data, salt, delay);
+    }
+
+    /// @notice Schedules `grantRole(FREEZER_ROLE, account)` on the bound stablecoin.
+    /// @dev `FREEZER_ROLE`'s role admin is `ADMIN_ROLE`, which this timelock holds.
+    function scheduleGrantFreezer(address account, bytes32 salt, uint256 delay) external {
+        bytes memory data = abi.encodeCall(stablecoin.grantRole, (stablecoin.FREEZER_ROLE(), account));
+        _scheduleStablecoinCall(data, salt, delay);
+    }
+
+    /// @notice Schedules `revokeRole(FREEZER_ROLE, account)` on the bound stablecoin.
+    /// @dev Rejects non-holders at schedule time; see `scheduleRevokeBurner` for the
+    /// rationale and the admin-path asymmetry that applies identically here.
+    function scheduleRevokeFreezer(address account, bytes32 salt, uint256 delay) external {
+        if (!stablecoin.hasRole(stablecoin.FREEZER_ROLE(), account)) revert NotAFreezer(account);
+        bytes memory data = abi.encodeCall(stablecoin.revokeRole, (stablecoin.FREEZER_ROLE(), account));
         _scheduleStablecoinCall(data, salt, delay);
     }
 
