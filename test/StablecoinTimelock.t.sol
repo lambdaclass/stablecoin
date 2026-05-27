@@ -91,6 +91,30 @@ contract StablecoinTimelockTest is Test {
         return abi.encodeCall(stablecoin.revokeRole, (stablecoin.ADMIN_ROLE(), oldAdmin));
     }
 
+    function _grantBurnerCalldata(address account) internal view returns (bytes memory) {
+        return abi.encodeCall(stablecoin.grantRole, (stablecoin.BURNER_ROLE(), account));
+    }
+
+    function _revokeBurnerCalldata(address account) internal view returns (bytes memory) {
+        return abi.encodeCall(stablecoin.revokeRole, (stablecoin.BURNER_ROLE(), account));
+    }
+
+    function _grantPauserCalldata(address account) internal view returns (bytes memory) {
+        return abi.encodeCall(stablecoin.grantRole, (stablecoin.PAUSER_ROLE(), account));
+    }
+
+    function _revokePauserCalldata(address account) internal view returns (bytes memory) {
+        return abi.encodeCall(stablecoin.revokeRole, (stablecoin.PAUSER_ROLE(), account));
+    }
+
+    function _grantFreezerCalldata(address account) internal view returns (bytes memory) {
+        return abi.encodeCall(stablecoin.grantRole, (stablecoin.FREEZER_ROLE(), account));
+    }
+
+    function _revokeFreezerCalldata(address account) internal view returns (bytes memory) {
+        return abi.encodeCall(stablecoin.revokeRole, (stablecoin.FREEZER_ROLE(), account));
+    }
+
     function _addMinterCalldata(address minter, uint256 cap) internal view returns (bytes memory) {
         return abi.encodeCall(stablecoin.addMinter, (minter, cap));
     }
@@ -187,6 +211,181 @@ contract StablecoinTimelockTest is Test {
 
         assertFalse(stablecoin.hasRole(adminRole, otherAdmin));
         assertEq(stablecoin.getRoleMemberCount(adminRole), 1);
+    }
+
+    // ============ scheduleGrantBurner / scheduleRevokeBurner ============
+
+    function test_E2E_GrantBurner() public {
+        bytes32 burnerRole = stablecoin.BURNER_ROLE();
+        address newBurner = address(0xB1);
+        assertFalse(stablecoin.hasRole(burnerRole, newBurner), "precondition: must not be burner");
+
+        bytes32 salt = bytes32(uint256(40));
+        bytes memory data = _grantBurnerCalldata(newBurner);
+
+        vm.prank(PROPOSER);
+        timelock.scheduleGrantBurner(newBurner, salt, DELAY);
+
+        // Cannot execute before the delay elapses.
+        vm.expectRevert();
+        timelock.execute(address(stablecoin), 0, data, bytes32(0), salt);
+
+        vm.warp(block.timestamp + DELAY + 1);
+        timelock.execute(address(stablecoin), 0, data, bytes32(0), salt);
+
+        assertTrue(stablecoin.hasRole(burnerRole, newBurner));
+    }
+
+    function test_E2E_RevokeBurner() public {
+        bytes32 burnerRole = stablecoin.BURNER_ROLE();
+        // ADMIN holds BURNER_ROLE from setUp: initialize granted all four roles to ADMIN,
+        // and setUp only renounced ADMIN_ROLE. Unlike ADMIN_ROLE, BURNER_ROLE has no
+        // last-holder guard, so revoking the sole holder is allowed.
+        assertTrue(stablecoin.hasRole(burnerRole, ADMIN), "precondition: ADMIN holds BURNER_ROLE");
+
+        bytes32 salt = bytes32(uint256(41));
+        bytes memory data = _revokeBurnerCalldata(ADMIN);
+
+        vm.prank(PROPOSER);
+        timelock.scheduleRevokeBurner(ADMIN, salt, DELAY);
+
+        vm.warp(block.timestamp + DELAY + 1);
+        timelock.execute(address(stablecoin), 0, data, bytes32(0), salt);
+
+        assertFalse(stablecoin.hasRole(burnerRole, ADMIN));
+    }
+
+    /// @notice Scheduling a revoke against an address that does not hold BURNER_ROLE
+    /// must revert at schedule time so the proposer does not burn a full minDelay
+    /// window only to have OZ's `_revokeRole` silently no-op at execute time.
+    function test_ScheduleRevokeBurnerRevertsOnNonHolder() public {
+        address typo = address(0xBADBAD);
+        assertFalse(stablecoin.hasRole(stablecoin.BURNER_ROLE(), typo), "precondition: must not be burner");
+        bytes32 salt = bytes32(uint256(42));
+
+        vm.prank(PROPOSER);
+        vm.expectRevert(abi.encodeWithSelector(StablecoinTimelock.NotABurner.selector, typo));
+        timelock.scheduleRevokeBurner(typo, salt, DELAY);
+    }
+
+    function test_ScheduleRevokeBurnerRevertsOnZeroAddress() public {
+        bytes32 salt = bytes32(uint256(43));
+
+        vm.prank(PROPOSER);
+        vm.expectRevert(abi.encodeWithSelector(StablecoinTimelock.NotABurner.selector, address(0)));
+        timelock.scheduleRevokeBurner(address(0), salt, DELAY);
+    }
+
+    // ============ scheduleGrantPauser / scheduleRevokePauser ============
+
+    function test_E2E_GrantPauser() public {
+        bytes32 pauserRole = stablecoin.PAUSER_ROLE();
+        address newPauser = address(0xB2);
+        assertFalse(stablecoin.hasRole(pauserRole, newPauser), "precondition: must not be pauser");
+
+        bytes32 salt = bytes32(uint256(44));
+        bytes memory data = _grantPauserCalldata(newPauser);
+
+        vm.prank(PROPOSER);
+        timelock.scheduleGrantPauser(newPauser, salt, DELAY);
+
+        vm.expectRevert();
+        timelock.execute(address(stablecoin), 0, data, bytes32(0), salt);
+
+        vm.warp(block.timestamp + DELAY + 1);
+        timelock.execute(address(stablecoin), 0, data, bytes32(0), salt);
+
+        assertTrue(stablecoin.hasRole(pauserRole, newPauser));
+    }
+
+    function test_E2E_RevokePauser() public {
+        bytes32 pauserRole = stablecoin.PAUSER_ROLE();
+        assertTrue(stablecoin.hasRole(pauserRole, ADMIN), "precondition: ADMIN holds PAUSER_ROLE");
+
+        bytes32 salt = bytes32(uint256(45));
+        bytes memory data = _revokePauserCalldata(ADMIN);
+
+        vm.prank(PROPOSER);
+        timelock.scheduleRevokePauser(ADMIN, salt, DELAY);
+
+        vm.warp(block.timestamp + DELAY + 1);
+        timelock.execute(address(stablecoin), 0, data, bytes32(0), salt);
+
+        assertFalse(stablecoin.hasRole(pauserRole, ADMIN));
+    }
+
+    function test_ScheduleRevokePauserRevertsOnNonHolder() public {
+        address typo = address(0xBADBAD);
+        assertFalse(stablecoin.hasRole(stablecoin.PAUSER_ROLE(), typo), "precondition: must not be pauser");
+        bytes32 salt = bytes32(uint256(46));
+
+        vm.prank(PROPOSER);
+        vm.expectRevert(abi.encodeWithSelector(StablecoinTimelock.NotAPauser.selector, typo));
+        timelock.scheduleRevokePauser(typo, salt, DELAY);
+    }
+
+    function test_ScheduleRevokePauserRevertsOnZeroAddress() public {
+        bytes32 salt = bytes32(uint256(47));
+
+        vm.prank(PROPOSER);
+        vm.expectRevert(abi.encodeWithSelector(StablecoinTimelock.NotAPauser.selector, address(0)));
+        timelock.scheduleRevokePauser(address(0), salt, DELAY);
+    }
+
+    // ============ scheduleGrantFreezer / scheduleRevokeFreezer ============
+
+    function test_E2E_GrantFreezer() public {
+        bytes32 freezerRole = stablecoin.FREEZER_ROLE();
+        address newFreezer = address(0xB3);
+        assertFalse(stablecoin.hasRole(freezerRole, newFreezer), "precondition: must not be freezer");
+
+        bytes32 salt = bytes32(uint256(48));
+        bytes memory data = _grantFreezerCalldata(newFreezer);
+
+        vm.prank(PROPOSER);
+        timelock.scheduleGrantFreezer(newFreezer, salt, DELAY);
+
+        vm.expectRevert();
+        timelock.execute(address(stablecoin), 0, data, bytes32(0), salt);
+
+        vm.warp(block.timestamp + DELAY + 1);
+        timelock.execute(address(stablecoin), 0, data, bytes32(0), salt);
+
+        assertTrue(stablecoin.hasRole(freezerRole, newFreezer));
+    }
+
+    function test_E2E_RevokeFreezer() public {
+        bytes32 freezerRole = stablecoin.FREEZER_ROLE();
+        assertTrue(stablecoin.hasRole(freezerRole, ADMIN), "precondition: ADMIN holds FREEZER_ROLE");
+
+        bytes32 salt = bytes32(uint256(49));
+        bytes memory data = _revokeFreezerCalldata(ADMIN);
+
+        vm.prank(PROPOSER);
+        timelock.scheduleRevokeFreezer(ADMIN, salt, DELAY);
+
+        vm.warp(block.timestamp + DELAY + 1);
+        timelock.execute(address(stablecoin), 0, data, bytes32(0), salt);
+
+        assertFalse(stablecoin.hasRole(freezerRole, ADMIN));
+    }
+
+    function test_ScheduleRevokeFreezerRevertsOnNonHolder() public {
+        address typo = address(0xBADBAD);
+        assertFalse(stablecoin.hasRole(stablecoin.FREEZER_ROLE(), typo), "precondition: must not be freezer");
+        bytes32 salt = bytes32(uint256(50));
+
+        vm.prank(PROPOSER);
+        vm.expectRevert(abi.encodeWithSelector(StablecoinTimelock.NotAFreezer.selector, typo));
+        timelock.scheduleRevokeFreezer(typo, salt, DELAY);
+    }
+
+    function test_ScheduleRevokeFreezerRevertsOnZeroAddress() public {
+        bytes32 salt = bytes32(uint256(51));
+
+        vm.prank(PROPOSER);
+        vm.expectRevert(abi.encodeWithSelector(StablecoinTimelock.NotAFreezer.selector, address(0)));
+        timelock.scheduleRevokeFreezer(address(0), salt, DELAY);
     }
 
     // ============ scheduleAddMinter ============
