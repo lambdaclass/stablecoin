@@ -22,6 +22,14 @@ contract BridgeMinter is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable
     /// A source chain is allowed if and only if the mapped address is non-zero.
     mapping(uint256 srcChain => address sender) public allowedSenders;
 
+    /// @notice Cumulative amount minted inbound on this chain, keyed by source chain id.
+    /// @dev Observability ledger — strictly additive, never enforced as a cap. The counter
+    /// is incremented ONLY on successful `stablecoin.mint(...)` so that any future
+    /// quarantine / retry path can keep it consistent with the actual on-chain supply
+    /// effect. Appended after `allowedSenders` in the storage layout — safe under
+    /// standard UUPS rules (no inherited base contracts' storage shifts).
+    mapping(uint256 srcChain => uint256 totalMinted) public totalMintedFrom;
+
     /// @notice Emitted when the allowed BridgeBurner for `srcChain` is configured.
     event AllowedSenderSet(uint256 indexed srcChain, address sender);
     /// @notice Emitted when the authorized Inbox is updated.
@@ -30,6 +38,10 @@ contract BridgeMinter is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable
     /// @dev `previousStablecoin == address(0)` on the initial wiring after deployment;
     /// any subsequent emission represents a swap and should be alerted on by operators.
     event StablecoinChanged(address indexed previousStablecoin, address indexed newStablecoin);
+    /// @notice Emitted on every successful inbound mint, carrying the running total minted
+    /// from `srcChain`. The `newTotal` field is the post-increment value, so monitoring
+    /// only needs to track the latest emission per `srcChain`.
+    event RouteMinted(uint256 indexed srcChain, address indexed recipient, uint256 amount, uint256 newTotal);
 
     error OnlyInbox();
     error DisallowedSender(uint256 srcChain, address srcSender);
@@ -121,6 +133,17 @@ contract BridgeMinter is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable
 
         (address recipient, uint256 amount) = TokenMintMessage.decode(payload);
         stablecoin.mint(recipient, amount);
+        _accountForMint(srcChain, recipient, amount);
+    }
+
+    /// @dev Records a successful inbound mint in the route accounting ledger. Called
+    /// from `handleMessage` today; the same helper is intended to be reused by any
+    /// future quarantine claim / redirect path, which must increment the counter
+    /// exactly once on the successful mint and never on the queue step.
+    function _accountForMint(uint256 srcChain, address recipient, uint256 amount) internal {
+        uint256 newTotal = totalMintedFrom[srcChain] + amount;
+        totalMintedFrom[srcChain] = newTotal;
+        emit RouteMinted(srcChain, recipient, amount, newTotal);
     }
 
     /// @dev Authorize UUPS upgrades. Restricted to the contract owner.

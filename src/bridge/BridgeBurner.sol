@@ -23,6 +23,15 @@ contract BridgeBurner is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable
     /// @notice Per-destination-chain minter address (the BridgeMinter on that chain).
     mapping(uint256 dstChain => address minter) public dstMinters;
 
+    /// @notice Cumulative amount burned outbound on this chain, keyed by destination chain id.
+    /// @dev Observability ledger — strictly additive, never enforced as a cap. Operators
+    /// reconcile against the destination chain's `BridgeMinter.totalMintedFrom[srcChain]`
+    /// to derive in-flight liabilities (`totalBurnedTo - totalMintedFrom` on the
+    /// counterpart side, modulo confirmation lag). Appended after `dstMinters` in the
+    /// storage layout — safe under standard UUPS rules (no inherited base contracts'
+    /// storage shifts).
+    mapping(uint256 dstChain => uint256 totalBurned) public totalBurnedTo;
+
     /// @notice Emitted when the destination minter address for `dstChain` is configured.
     event DstMinterSet(uint256 indexed dstChain, address minter);
     /// @notice Emitted when the Outbox reference is updated.
@@ -31,6 +40,11 @@ contract BridgeBurner is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable
     /// @dev `previousStablecoin == address(0)` on the initial wiring after deployment;
     /// any subsequent emission represents a swap and should be alerted on by operators.
     event StablecoinChanged(address indexed previousStablecoin, address indexed newStablecoin);
+    /// @notice Emitted on every successful `sendTo`, carrying the running total burned
+    /// to `dstChain`. The `newTotal` field is the post-increment value, so monitoring
+    /// only needs to track the latest emission per `dstChain` rather than summing
+    /// historical events.
+    event RouteBurned(uint256 indexed dstChain, address indexed recipient, uint256 amount, uint256 newTotal);
 
     error DstMinterNotSet(uint256 dstChain);
     error ZeroAddress(bytes32 field);
@@ -151,6 +165,14 @@ contract BridgeBurner is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable
         // Encode the application payload and send through the Outbox
         bytes memory payload = TokenMintMessage.encode(recipient, amount);
         outbox.sendMessage(dstChain, minter, payload);
+
+        // Route accounting — strictly additive, post-burn. `+= amount` is overflow-safe
+        // under solc 0.8.x checked arithmetic; in practice the counter cannot exceed the
+        // stablecoin's `totalSupply` ever burned via this route, so realistic values
+        // are bounded far below `type(uint256).max`.
+        uint256 newTotal = totalBurnedTo[dstChain] + amount;
+        totalBurnedTo[dstChain] = newTotal;
+        emit RouteBurned(dstChain, recipient, amount, newTotal);
     }
 
     /// @dev Authorize UUPS upgrades. Restricted to the contract owner.
