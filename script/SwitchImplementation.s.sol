@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: UNLICENSED
+// SPDX-License-Identifier: Apache-2.0
 pragma solidity =0.8.30;
 
 import {Script, console} from "forge-std/Script.sol";
@@ -23,6 +23,11 @@ import {Stablecoin} from "src/Stablecoin.sol";
 ///       --sig 'run(address,address,bytes,string,string)' \
 ///       $PROXY $NEW_IMPL 0x "StablecoinV2.sol" "Stablecoin.sol"
 contract SwitchImplementation is Script {
+    error ProxyHasNoCode(address proxy);
+    error ImplementationHasNoCode(address impl);
+    error AlreadyAtImplementation(address impl);
+    error ImplementationNotUpdated(address expected, address actual);
+
     function run(
         address proxyAddress,
         address newImplementation,
@@ -31,11 +36,11 @@ contract SwitchImplementation is Script {
         string memory referenceContract
     ) public {
         // ── Pre-upgrade checks ──────────────────────────────────
-        require(proxyAddress.code.length > 0, "Proxy address has no code");
-        require(newImplementation.code.length > 0, "Implementation address has no code");
+        require(proxyAddress.code.length > 0, ProxyHasNoCode(proxyAddress));
+        require(newImplementation.code.length > 0, ImplementationHasNoCode(newImplementation));
 
         address implBefore = Upgrades.getImplementationAddress(proxyAddress);
-        require(newImplementation != implBefore, "Proxy already points to this implementation");
+        require(newImplementation != implBefore, AlreadyAtImplementation(newImplementation));
 
         Stablecoin coin = Stablecoin(proxyAddress);
         console.log("Proxy:", proxyAddress);
@@ -60,7 +65,7 @@ contract SwitchImplementation is Script {
 
         // ── Post-upgrade checks ─────────────────────────────────
         address implAfter = Upgrades.getImplementationAddress(proxyAddress);
-        require(implAfter == newImplementation, "Implementation not updated correctly");
+        require(implAfter == newImplementation, ImplementationNotUpdated(newImplementation, implAfter));
 
         console.log("");
         console.log("Upgrade complete!");

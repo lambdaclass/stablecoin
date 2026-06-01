@@ -189,3 +189,7 @@ forge clean && forge script script/DeployStablecoin.s.sol \
 ```
 
 This deploys the UUPS proxy with `Stablecoin.sol` as the initial implementation.
+
+## License
+
+This project is licensed under the Apache License, Version 2.0. See [LICENSE](./LICENSE) for the full text.

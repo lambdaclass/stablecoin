@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: UNLICENSED
+// SPDX-License-Identifier: Apache-2.0
 //
 // Formal verification tests for the bridge contracts using Halmos.
 //
@@ -70,19 +70,19 @@ contract FormalTestBase is Test {
         ERC1967Proxy inboxProxy = new ERC1967Proxy(address(inboxImpl), abi.encodeCall(Inbox.initialize, (ADMIN)));
         inbox = Inbox(address(inboxProxy));
 
-        // Deploy BridgeBurner
+        // Deploy BridgeBurner (stablecoin wired post-deploy; see BridgeDeploy dev note)
         BridgeBurner burnerImpl = new BridgeBurner();
-        ERC1967Proxy burnerProxy = new ERC1967Proxy(
-            address(burnerImpl), abi.encodeCall(BridgeBurner.initialize, (ADMIN, address(stablecoin), address(outbox)))
-        );
+        ERC1967Proxy burnerProxy =
+            new ERC1967Proxy(address(burnerImpl), abi.encodeCall(BridgeBurner.initialize, (ADMIN, address(outbox))));
         bridgeBurner = BridgeBurner(address(burnerProxy));
+        bridgeBurner.setStablecoin(address(stablecoin));
 
         // Deploy BridgeMinter
         BridgeMinter minterImpl = new BridgeMinter();
-        ERC1967Proxy minterProxy = new ERC1967Proxy(
-            address(minterImpl), abi.encodeCall(BridgeMinter.initialize, (ADMIN, address(stablecoin), address(inbox)))
-        );
+        ERC1967Proxy minterProxy =
+            new ERC1967Proxy(address(minterImpl), abi.encodeCall(BridgeMinter.initialize, (ADMIN, address(inbox))));
         bridgeMinter = BridgeMinter(address(minterProxy));
+        bridgeMinter.setStablecoin(address(stablecoin));
 
         vm.stopPrank();
     }
@@ -199,16 +199,21 @@ contract InboxFormalTest is FormalTestBase {
     ///
     /// The check `require(threshold > 0)` (Inbox L151) is the first check in
     /// _verifySignatures, so no signature can satisfy a zero threshold.
+    /// @dev `Inbox.setThreshold` now refuses `threshold_ == 0` (PR #4 invariant),
+    /// so we exercise the implicit zero state by deploying a fresh Inbox whose
+    /// `threshold` has never been set rather than calling `setThreshold(0)`.
     function check_zeroThresholdFailsClosed(bytes32 nonce) public {
-        vm.prank(ADMIN);
-        inbox.setThreshold(0);
+        Inbox freshInboxImpl = new Inbox();
+        ERC1967Proxy freshInboxProxy =
+            new ERC1967Proxy(address(freshInboxImpl), abi.encodeCall(Inbox.initialize, (ADMIN)));
+        Inbox freshInbox = Inbox(address(freshInboxProxy));
 
         bytes memory message = _encodeMessage(42, address(0xAAAA), block.chainid, address(receiver), nonce, hex"");
 
         // 130 zero bytes: passes length alignment but reaches the threshold check.
         bytes memory sigs = new bytes(130);
 
-        (bool success,) = address(inbox).call(abi.encodeCall(inbox.recvMessage, (message, sigs)));
+        (bool success,) = address(freshInbox).call(abi.encodeCall(freshInbox.recvMessage, (message, sigs)));
         assert(!success);
     }
 

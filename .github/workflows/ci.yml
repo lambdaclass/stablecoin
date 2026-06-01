@@ -85,3 +85,35 @@ jobs:
         # All formal-test contract names end in `FormalTest` (see test/bridge/Bridge.formal.t.sol).
         # Halmos has no `--match-path`, so we scope by contract-name regex instead.
         run: halmos --match-contract 'FormalTest$'
+
+  integration:
+    name: anvil upgrade integration
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          submodules: recursive
+      - uses: foundry-rs/foundry-toolchain@c7450ba673e133f5ee30098b3b54f444d3a2ca2d # v1.8.0
+        with:
+          version: stable
+      # Node + npx are required: the integration script's step-1 forge script
+      # invokes `Upgrades.upgradeProxy(...)` which FFIs to
+      # `npx @openzeppelin/upgrades-core` for storage-layout validation
+      # against the OldStablecoin reference contract.
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '20'
+      # The script orchestrates the full upgrade flow against a freshly-spawned
+      # anvil instance:
+      #   1. forge clean + forge build (OZ validator needs a full compilation)
+      #   2. spawn anvil and assert chain-id == 31337
+      #   3. step 1 forge script: deploy OldStablecoin proxy, atomic
+      #      upgrade-and-reinit, deploy timelock, schedule addMinter
+      #   4. cast rpc evm_increaseTime past minDelay
+      #   5. step 2 forge script: execute the matured op and assert final state
+      #   6. cleanup (anvil teardown + state-file rm) via EXIT trap
+      # Invoked via `bash` so we don't depend on the executable bit being
+      # preserved through git checkouts on every platform.
+      - name: Run anvil-orchestrated upgrade-from-main integration test
+        run: bash script/integration/run_anvil_integration.sh

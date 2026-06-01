@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: UNLICENSED
+// SPDX-License-Identifier: Apache-2.0
 pragma solidity =0.8.30;
 
 import {Script, console} from "forge-std/Script.sol";
@@ -17,6 +17,12 @@ import {Stablecoin} from "src/Stablecoin.sol";
 ///       --sig 'run(address,string,bytes,address,string)' \
 ///       $PROXY "StablecoinV2.sol" $REINIT_DATA $ADMIN "Stablecoin.sol"
 contract SimulateUpgrade is Script {
+    error ProxyHasNoCode(address proxy);
+    error AdminMissingRole(address admin);
+    error ImplementationUnchanged(address impl);
+    error ImplementationIsZero();
+    error StateChanged(string field);
+
     function run(
         address proxyAddress,
         string memory contractName,
@@ -24,7 +30,7 @@ contract SimulateUpgrade is Script {
         address admin,
         string memory referenceContract
     ) public {
-        require(proxyAddress.code.length > 0, "Proxy address has no code");
+        require(proxyAddress.code.length > 0, ProxyHasNoCode(proxyAddress));
 
         Stablecoin coin = Stablecoin(proxyAddress);
 
@@ -48,7 +54,7 @@ contract SimulateUpgrade is Script {
         console.log("Implementation:", preImpl);
 
         // ── 2. Verify admin has ADMIN_ROLE ──────────────────────
-        require(coin.hasRole(coin.ADMIN_ROLE(), admin), "Provided admin does not have ADMIN_ROLE");
+        require(coin.hasRole(coin.ADMIN_ROLE(), admin), AdminMissingRole(admin));
         console.log("");
         console.log("Admin verified:", admin);
 
@@ -74,16 +80,16 @@ contract SimulateUpgrade is Script {
         console.log("=== Post-upgrade verification ===");
 
         address postImpl = Upgrades.getImplementationAddress(proxyAddress);
-        require(postImpl != preImpl, "FAIL: Implementation address unchanged");
-        require(postImpl != address(0), "FAIL: Implementation is zero address");
+        require(postImpl != preImpl, ImplementationUnchanged(preImpl));
+        require(postImpl != address(0), ImplementationIsZero());
         console.log("New implementation:", postImpl);
 
-        require(keccak256(bytes(coin.name())) == keccak256(bytes(preName)), "FAIL: Name changed");
-        require(keccak256(bytes(coin.symbol())) == keccak256(bytes(preSymbol)), "FAIL: Symbol changed");
-        require(coin.decimals() == preDecimals, "FAIL: Decimals changed");
-        require(coin.totalSupply() == preTotalSupply, "FAIL: Total supply changed");
-        require(coin.paused() == prePaused, "FAIL: Paused state changed");
-        require(coin.getMinterCount() == preMinterCount, "FAIL: Minter count changed");
+        require(keccak256(bytes(coin.name())) == keccak256(bytes(preName)), StateChanged("name"));
+        require(keccak256(bytes(coin.symbol())) == keccak256(bytes(preSymbol)), StateChanged("symbol"));
+        require(coin.decimals() == preDecimals, StateChanged("decimals"));
+        require(coin.totalSupply() == preTotalSupply, StateChanged("totalSupply"));
+        require(coin.paused() == prePaused, StateChanged("paused"));
+        require(coin.getMinterCount() == preMinterCount, StateChanged("minterCount"));
 
         console.log("");
         console.log("=== SIMULATION PASSED ===");

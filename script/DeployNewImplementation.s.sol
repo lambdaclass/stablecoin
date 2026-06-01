@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: UNLICENSED
+// SPDX-License-Identifier: Apache-2.0
 pragma solidity =0.8.30;
 
 import {Script, console} from "forge-std/Script.sol";
@@ -17,12 +17,10 @@ contract DeployNewImplementation is Script {
         Options memory opts;
         opts.referenceContract = referenceContract;
 
-        // 1. Validate storage layout (reverts on incompatibility)
-        console.log("Validating storage layout for", contractName);
-        Upgrades.validateUpgrade(contractName, opts);
-        console.log("Storage layout validation passed");
-
-        // 2. Deploy new implementation
+        // Deploy new implementation. prepareUpgrade runs validateUpgrade internally and
+        // reverts on storage-layout incompatibility, so an explicit prior call would be
+        // redundant.
+        console.log("Validating storage layout and deploying new implementation for", contractName);
         vm.startBroadcast();
         address newImpl = Upgrades.prepareUpgrade(contractName, opts);
         vm.stopBroadcast();

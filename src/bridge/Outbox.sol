@@ -1,15 +1,17 @@
-// SPDX-License-Identifier: UNLICENSED
+// SPDX-License-Identifier: Apache-2.0
 pragma solidity =0.8.30;
 
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import {Ownable2StepUpgradeable} from "@openzeppelin/contracts-upgradeable/access/Ownable2StepUpgradeable.sol";
 import {PausableUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/PausableUpgradeable.sol";
+import {IERC165} from "@openzeppelin/contracts/utils/introspection/IERC165.sol";
 import {IOutbox} from "./interfaces/IOutbox.sol";
 
 /// @title Outbox
 /// @notice Generic message outbox. Accepts messages and emits events for the off-chain attestation service.
 /// Stateless: does not track messages or nonces.
+/// @custom:security-contact security@lambdaclass.com
 contract Outbox is Initializable, Ownable2StepUpgradeable, PausableUpgradeable, UUPSUpgradeable, IOutbox {
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
@@ -26,6 +28,12 @@ contract Outbox is Initializable, Ownable2StepUpgradeable, PausableUpgradeable, 
     /// @inheritdoc IOutbox
     function sendMessage(uint256 dstChain, address dstRecipient, bytes calldata payload) external whenNotPaused {
         emit MessageSent(msg.sender, dstChain, dstRecipient, payload);
+    }
+
+    /// @notice ERC-165 marker so consumers (e.g. BridgeBurner) can verify they have
+    /// been pointed at a canonical Outbox before burning user tokens against it.
+    function supportsInterface(bytes4 interfaceId) external pure returns (bool) {
+        return interfaceId == type(IOutbox).interfaceId || interfaceId == type(IERC165).interfaceId;
     }
 
     /// @notice Pause the outbox, blocking all outbound messages.

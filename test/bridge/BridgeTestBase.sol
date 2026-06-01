@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: UNLICENSED
+// SPDX-License-Identifier: Apache-2.0
 pragma solidity =0.8.30;
 
 import {Test} from "forge-std/Test.sol";
@@ -53,7 +53,11 @@ contract BridgeTestBase is Test {
         stablecoin = Stablecoin(address(proxy));
 
         // Deploy bridge contracts
-        bridge = BridgeDeploy.deployAll(BASE_SALT, ADMIN, address(stablecoin));
+        bridge = BridgeDeploy.deployAll(BASE_SALT, ADMIN);
+        // Wire the stablecoin into the burner/minter (no longer in initializer; see
+        // BridgeDeploy dev note about deterministic addresses).
+        bridge.bridgeBurner.setStablecoin(address(stablecoin));
+        bridge.bridgeMinter.setStablecoin(address(stablecoin));
         vm.stopPrank();
     }
 

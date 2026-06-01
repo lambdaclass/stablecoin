@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: UNLICENSED
+// SPDX-License-Identifier: Apache-2.0
 pragma solidity =0.8.30;
 
 import {Script, console} from "forge-std/Script.sol";
@@ -10,8 +10,28 @@ import {BridgeBurner} from "src/bridge/BridgeBurner.sol";
 import {BridgeMinter} from "src/bridge/BridgeMinter.sol";
 
 /// @notice Deploys all bridge contracts directly (no CREATE2) for integration testing.
+/// @dev Production cross-chain routes are configured per-direction: the BridgeMinter on chain B
+/// accepts messages whose `srcChain` is chain A and whose sender is the BridgeBurner on chain A,
+/// and the BridgeBurner on chain A routes outbound messages to the BridgeMinter on chain B.
+/// The previous implementation passed `block.chainid` (the *local* chain) into both
+/// `setAllowedSender` and `setDstMinter`, producing a same-chain loop that can never be used
+/// because BridgeBurner.sendTo reverts when `dstChain == block.chainid`. The script now requires
+/// the counterpart chain ID so the route at least *describes* a valid bridge topology, even when
+/// the counterpart contract addresses are stubs supplied by the operator.
 contract DeployTestBridge is Script {
-    function run(address attestor, uint256 minterAllowance) public {
+    uint8 internal constant DECIMALS = 6;
+
+    error CounterpartIsLocalChain(uint256 chainId);
+
+    function run(
+        address attestor,
+        uint256 minterAllowance,
+        uint256 counterpartChainId,
+        address counterpartBurner,
+        address counterpartMinter
+    ) public {
+        require(counterpartChainId != block.chainid, CounterpartIsLocalChain(block.chainid));
+
         address admin = msg.sender;
 
         vm.startBroadcast();
@@ -22,7 +42,17 @@ contract DeployTestBridge is Script {
         BridgeBurner bridgeBurner = _deployBurner(admin, address(stablecoin), address(outbox));
         BridgeMinter bridgeMinter = _deployMinter(admin, address(stablecoin), address(inbox));
 
-        _configure(stablecoin, inbox, bridgeBurner, bridgeMinter, attestor, minterAllowance);
+        _configure(
+            stablecoin,
+            inbox,
+            bridgeBurner,
+            bridgeMinter,
+            attestor,
+            minterAllowance,
+            counterpartChainId,
+            counterpartBurner,
+            counterpartMinter
+        );
 
         vm.stopBroadcast();
 
@@ -36,7 +66,8 @@ contract DeployTestBridge is Script {
     function _deployStablecoin(address admin) internal returns (Stablecoin) {
         Stablecoin impl_ = new Stablecoin();
         ERC1967Proxy proxy = new ERC1967Proxy(
-            address(impl_), abi.encodeCall(Stablecoin.initialize, ("Stablecoin", "STBL", 6, admin, admin, admin, admin))
+            address(impl_),
+            abi.encodeCall(Stablecoin.initialize, ("Stablecoin", "STBL", DECIMALS, admin, admin, admin, admin))
         );
         return Stablecoin(address(proxy));
     }
@@ -55,16 +86,18 @@ contract DeployTestBridge is Script {
 
     function _deployBurner(address admin, address stablecoin, address outbox) internal returns (BridgeBurner) {
         BridgeBurner impl_ = new BridgeBurner();
-        ERC1967Proxy proxy =
-            new ERC1967Proxy(address(impl_), abi.encodeCall(BridgeBurner.initialize, (admin, stablecoin, outbox)));
-        return BridgeBurner(address(proxy));
+        ERC1967Proxy proxy = new ERC1967Proxy(address(impl_), abi.encodeCall(BridgeBurner.initialize, (admin, outbox)));
+        BridgeBurner burner = BridgeBurner(address(proxy));
+        burner.setStablecoin(stablecoin);
+        return burner;
     }
 
     function _deployMinter(address admin, address stablecoin, address inbox) internal returns (BridgeMinter) {
         BridgeMinter impl_ = new BridgeMinter();
-        ERC1967Proxy proxy =
-            new ERC1967Proxy(address(impl_), abi.encodeCall(BridgeMinter.initialize, (admin, stablecoin, inbox)));
-        return BridgeMinter(address(proxy));
+        ERC1967Proxy proxy = new ERC1967Proxy(address(impl_), abi.encodeCall(BridgeMinter.initialize, (admin, inbox)));
+        BridgeMinter minter = BridgeMinter(address(proxy));
+        minter.setStablecoin(stablecoin);
+        return minter;
     }
 
     function _configure(
@@ -73,7 +106,10 @@ contract DeployTestBridge is Script {
         BridgeBurner bridgeBurner,
         BridgeMinter bridgeMinter,
         address attestor,
-        uint256 minterAllowance
+        uint256 minterAllowance,
+        uint256 counterpartChainId,
+        address counterpartBurner,
+        address counterpartMinter
     ) internal {
         stablecoin.grantRole(stablecoin.BURNER_ROLE(), address(bridgeBurner));
         stablecoin.addMinter(address(bridgeMinter), minterAllowance);
@@ -81,7 +117,9 @@ contract DeployTestBridge is Script {
         stablecoin.addMinter(msg.sender, minterAllowance);
         inbox.addAttestor(attestor);
         inbox.setThreshold(1);
-        bridgeMinter.setAllowedSender(block.chainid, address(bridgeBurner));
-        bridgeBurner.setDstMinter(block.chainid, address(bridgeMinter));
+        // The local BridgeMinter accepts messages from the counterpart chain's BridgeBurner;
+        // the local BridgeBurner routes outbound messages to the counterpart chain's BridgeMinter.
+        bridgeMinter.setAllowedSender(counterpartChainId, counterpartBurner);
+        bridgeBurner.setDstMinter(counterpartChainId, counterpartMinter);
     }
 }

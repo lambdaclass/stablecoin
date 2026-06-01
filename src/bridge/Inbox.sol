@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: UNLICENSED
+// SPDX-License-Identifier: Apache-2.0
 pragma solidity =0.8.30;
 
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
@@ -14,6 +14,7 @@ import {IMessageReceiver} from "./interfaces/IMessageReceiver.sol";
 /// @title Inbox
 /// @notice Generic message inbox with k-of-n EIP-712 attestor verification, nonce replay protection,
 /// and message delivery to receiver contracts.
+/// @custom:security-contact security@lambdaclass.com
 contract Inbox is
     Initializable,
     Ownable2StepUpgradeable,
@@ -23,6 +24,9 @@ contract Inbox is
     IInbox
 {
     using EnumerableSet for EnumerableSet.AddressSet;
+
+    /// @notice Length in bytes of a packed ECDSA signature (r || s || v).
+    uint256 internal constant SIGNATURE_LENGTH = 65;
 
     /// @notice Minimum number of valid attestor signatures required.
     uint256 public threshold;
@@ -34,11 +38,15 @@ contract Inbox is
     /// @dev Uses uint256 instead of bool to skip the read-modify-write the
     /// compiler emits for sub-word types. See OZ ReentrancyGuard for rationale:
     /// https://github.com/OpenZeppelin/openzeppelin-contracts/blob/fcbae5394ae8ad52d8e580a3477db99814b9d565/contracts/utils/ReentrancyGuard.sol#L39-L43
-    mapping(bytes32 => uint256) public usedNonces;
+    mapping(bytes32 nonce => uint256 used) public usedNonces;
 
+    /// @notice Emitted on every successful `recvMessage` delivery.
     event MessageDelivered(bytes32 indexed nonce, address indexed dstRecipient);
+    /// @notice Emitted when an address is added to the attestor set.
     event AttestorAdded(address indexed attestor);
+    /// @notice Emitted when an address is removed from the attestor set.
     event AttestorRemoved(address indexed attestor);
+    /// @notice Emitted when the signature threshold is updated.
     event ThresholdSet(uint256 threshold);
 
     error InvalidSignatureCount();
@@ -47,9 +55,10 @@ contract Inbox is
     error SignerNotAttestor(address signer);
     error NonceAlreadyUsed(bytes32 nonce);
     error WrongDestinationChain(uint256 expected, uint256 actual);
-    error ZeroAddress();
+    error ZeroAddress(bytes32 field);
     error AlreadyAttestor(address attestor);
     error NotAttestor(address attestor);
+    error InvalidThreshold(uint256 threshold, uint256 attestorCount);
 
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
@@ -88,26 +97,30 @@ contract Inbox is
     /// @notice Add an address to the attestor set.
     /// @param attestor Address to add. Must not be zero or already an attestor.
     function addAttestor(address attestor) external onlyOwner {
-        require(attestor != address(0), ZeroAddress());
+        require(attestor != address(0), ZeroAddress("attestor"));
         require(_attestors.add(attestor), AlreadyAttestor(attestor));
         emit AttestorAdded(attestor);
     }
 
     /// @notice Remove an address from the attestor set.
-    /// @dev WARNING: if removing this attestor leaves fewer active attestors than the current
-    /// threshold, all message delivery will be blocked until the threshold is lowered or new
-    /// attestors are added.
+    /// @dev Rejects the removal if it would leave fewer active attestors than the current
+    /// threshold. The owner must lower `threshold` first (via setThreshold) before pruning
+    /// the set below it.
     /// @param attestor Address to remove. Must be a current attestor.
     function removeAttestor(address attestor) external onlyOwner {
         require(_attestors.remove(attestor), NotAttestor(attestor));
+        uint256 newCount = _attestors.length();
+        require(newCount >= threshold, InvalidThreshold(threshold, newCount));
         emit AttestorRemoved(attestor);
     }
 
     /// @notice Update the minimum number of attestor signatures required to deliver a message.
-    /// @dev WARNING: a threshold of 0 or higher than the number of active attestors will cause
-    /// all message delivery to be rejected until the threshold is updated.
+    /// @dev Enforces `0 < threshold_ <= attestorCount` so the new threshold is always
+    /// satisfiable by the current attestor set.
     /// @param threshold_ New threshold value.
     function setThreshold(uint256 threshold_) external onlyOwner {
+        uint256 attestorCount = _attestors.length();
+        require(threshold_ > 0 && threshold_ <= attestorCount, InvalidThreshold(threshold_, attestorCount));
         threshold = threshold_;
         emit ThresholdSet(threshold_);
     }
@@ -161,23 +174,38 @@ contract Inbox is
 
         // Fail-closed: reject all messages when threshold is unconfigured (zero).
         require(threshold_ > 0, BelowThreshold());
-        uint256 sigCount = signatures.length / 65;
-        require(signatures.length == sigCount * 65, InvalidSignatureCount());
+        uint256 sigCount = signatures.length / SIGNATURE_LENGTH;
+        require(signatures.length == sigCount * SIGNATURE_LENGTH, InvalidSignatureCount());
         require(sigCount >= threshold_, BelowThreshold());
 
         bytes32 digest = _hashMessage(message);
 
+        // Snapshot the attestor set into memory once so the membership check
+        // inside the loop doesn't re-read storage on every iteration.
+        address[] memory attestors = _attestors.values();
+
         address prevSigner = address(0);
-        for (uint256 i = 0; i < sigCount; i++) {
-            uint256 offset = i * 65;
-            address signer = ECDSA.recoverCalldata(digest, signatures[offset:offset + 65]);
+        for (uint256 i = 0; i < sigCount; ++i) {
+            uint256 offset = i * SIGNATURE_LENGTH;
+            address signer = ECDSA.recoverCalldata(digest, signatures[offset:offset + SIGNATURE_LENGTH]);
 
             // Enforce ascending order to detect duplicates in O(n)
             require(signer > prevSigner, DuplicateSigner());
-            require(_attestors.contains(signer), SignerNotAttestor(signer));
+            require(_containsAddress(attestors, signer), SignerNotAttestor(signer));
 
             prevSigner = signer;
         }
+    }
+
+    /// @dev Linear membership check over an in-memory address array. Used by
+    /// `_verifySignatures` after snapshotting the attestor set so the
+    /// per-signature check no longer hits storage.
+    function _containsAddress(address[] memory haystack, address needle) private pure returns (bool) {
+        uint256 len = haystack.length;
+        for (uint256 i = 0; i < len; i++) {
+            if (haystack[i] == needle) return true;
+        }
+        return false;
     }
 
     /// @notice Hashes raw message bytes with the EIP-712 domain separator for

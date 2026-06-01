@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: UNLICENSED
+// SPDX-License-Identifier: Apache-2.0
 pragma solidity =0.8.30;
 
 import {Script, console} from "forge-std/Script.sol";
@@ -16,6 +16,10 @@ import {Stablecoin} from "src/Stablecoin.sol";
 ///       --sig 'run(address,string,bytes,string)' \
 ///       $PROXY "StablecoinV2.sol" $REINIT_DATA "Stablecoin.sol"
 contract UpgradeStablecoin is Script {
+    error ProxyHasNoCode(address proxy);
+    error ImplementationUnchanged(address current);
+    error ImplementationIsZero();
+
     function run(
         address proxyAddress,
         string memory contractName,
@@ -23,7 +27,7 @@ contract UpgradeStablecoin is Script {
         string memory referenceContract
     ) public {
         // ── Pre-upgrade checks ──────────────────────────────────
-        require(proxyAddress.code.length > 0, "Proxy address has no code");
+        require(proxyAddress.code.length > 0, ProxyHasNoCode(proxyAddress));
 
         address implBefore = Upgrades.getImplementationAddress(proxyAddress);
         console.log("Proxy address:", proxyAddress);
@@ -49,8 +53,8 @@ contract UpgradeStablecoin is Script {
 
         // ── Post-upgrade checks ─────────────────────────────────
         address implAfter = Upgrades.getImplementationAddress(proxyAddress);
-        require(implAfter != implBefore, "Implementation address did not change");
-        require(implAfter != address(0), "Implementation address is zero");
+        require(implAfter != implBefore, ImplementationUnchanged(implBefore));
+        require(implAfter != address(0), ImplementationIsZero());
 
         console.log("");
         console.log("Upgrade complete!");

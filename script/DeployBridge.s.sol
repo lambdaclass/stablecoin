@@ -1,62 +1,49 @@
-// SPDX-License-Identifier: UNLICENSED
+// SPDX-License-Identifier: Apache-2.0
 pragma solidity =0.8.30;
 
 import {Script, console} from "forge-std/Script.sol";
-import {Stablecoin} from "src/Stablecoin.sol";
 import {BridgeDeploy} from "src/bridge/deploy/BridgeDeploy.sol";
-import {BridgeConfig} from "src/bridge/deploy/BridgeConfig.sol";
 
 /// @title DeployBridge
-/// @notice Deploys and configures all bridge contracts from a TOML configuration file.
-/// Usage: forge script script/DeployBridge.s.sol --sig "run(string)" <path-to-config.toml>
+/// @notice Deploys all bridge contracts (Outbox, Inbox, BridgeBurner, BridgeMinter) via
+/// the Arachnid CREATE2 factory to deterministic addresses. Does NOT configure them
+/// — see `ConfigureBridge.s.sol` for the configure step.
+///
+/// @dev DEPLOY/CONFIGURE SPLIT — IMPORTANT
+///
+/// The deploy and configure steps are intentionally split into two scripts because the
+/// configure step calls `onlyOwner` functions on the bridge contracts AND `ADMIN_ROLE`-
+/// gated functions on the stablecoin. In production both of those are typically held
+/// by a Safe / multisig, while the deploy broadcast is a single EOA. A combined
+/// "deploy + configure" broadcast can only work if the broadcaster IS the owner — that
+/// holds in dev (Anvil account #0 is both) but breaks in production.
+///
+/// Splitting also preserves cross-chain address determinism: `owner` is encoded into
+/// every proxy's init code, so a "deploy with owner = EOA, then transferOwnership to
+/// Safe" workaround would yield a different CREATE2 address per chain (see BridgeDeploy
+/// dev note). With this split, `owner` is the Safe from t=0, identical on every chain.
+///
+/// Usage:
+///   forge script script/DeployBridge.s.sol \
+///     --sig "run(string)" <path-to-config.toml> \
+///     --rpc-url <RPC> --broadcast --private-key $DEPLOYER_PK
 contract DeployBridge is Script {
     function run(string memory configPath) public {
         string memory toml = vm.readFile(configPath);
 
-        // Parse core params
-        address stablecoinAddr = vm.parseTomlAddress(toml, ".bridge.stablecoin");
         address owner = vm.parseTomlAddress(toml, ".bridge.owner");
         bytes32 baseSalt = vm.parseTomlBytes32(toml, ".bridge.salt");
 
-        // Parse config
-        BridgeConfig.Config memory config = _parseConfig(toml);
-
         vm.startBroadcast();
-
-        BridgeDeploy.Contracts memory contracts = BridgeDeploy.deployAll(baseSalt, owner, stablecoinAddr);
-        BridgeConfig.configure(Stablecoin(stablecoinAddr), contracts, config);
-
+        BridgeDeploy.Contracts memory contracts = BridgeDeploy.deployAll(baseSalt, owner);
         vm.stopBroadcast();
 
         console.log("Outbox:       ", address(contracts.outbox));
         console.log("Inbox:        ", address(contracts.inbox));
         console.log("BridgeBurner: ", address(contracts.bridgeBurner));
         console.log("BridgeMinter: ", address(contracts.bridgeMinter));
-    }
-
-    function _parseConfig(string memory toml) internal pure returns (BridgeConfig.Config memory config) {
-        config.threshold = vm.parseTomlUint(toml, ".bridge.inbox.threshold");
-        config.attestors = vm.parseTomlAddressArray(toml, ".bridge.inbox.attestors");
-        config.minterAllowance = vm.parseTomlUint(toml, ".bridge.minter.allowance");
-
-        // Parse allowed senders
-        uint256[] memory srcChains = vm.parseTomlUintArray(toml, ".bridge.allowed_senders.src_chain");
-        address[] memory srcSenders = vm.parseTomlAddressArray(toml, ".bridge.allowed_senders.sender");
-        require(srcChains.length == srcSenders.length, "allowed_senders length mismatch");
-
-        config.allowedSenders = new BridgeConfig.AllowedSender[](srcChains.length);
-        for (uint256 i = 0; i < srcChains.length; i++) {
-            config.allowedSenders[i] = BridgeConfig.AllowedSender(srcChains[i], srcSenders[i]);
-        }
-
-        // Parse destination minters
-        uint256[] memory dstChains = vm.parseTomlUintArray(toml, ".bridge.dst_minters.dst_chain");
-        address[] memory dstMinters = vm.parseTomlAddressArray(toml, ".bridge.dst_minters.minter");
-        require(dstChains.length == dstMinters.length, "dst_minters length mismatch");
-
-        config.dstMinters = new BridgeConfig.DstMinter[](dstChains.length);
-        for (uint256 i = 0; i < dstChains.length; i++) {
-            config.dstMinters[i] = BridgeConfig.DstMinter(dstChains[i], dstMinters[i]);
-        }
+        console.log("");
+        console.log("Next step: run ConfigureBridge.s.sol from the owner (Safe) to wire");
+        console.log("the stablecoin, attestors, allowed senders, and destination minters.");
     }
 }

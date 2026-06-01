@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: UNLICENSED
+// SPDX-License-Identifier: Apache-2.0
 pragma solidity =0.8.30;
 
 import {Test} from "forge-std/Test.sol";
@@ -428,7 +428,9 @@ contract BridgeInvariantTest is Test {
         );
         env.stablecoin = Stablecoin(address(proxy));
 
-        env.bridge = BridgeDeploy.deployAll(salt, ADMIN, address(env.stablecoin));
+        env.bridge = BridgeDeploy.deployAll(salt, ADMIN);
+        env.bridge.bridgeBurner.setStablecoin(address(env.stablecoin));
+        env.bridge.bridgeMinter.setStablecoin(address(env.stablecoin));
 
         // Roles
         env.stablecoin.grantRole(env.stablecoin.BURNER_ROLE(), address(env.bridge.bridgeBurner));

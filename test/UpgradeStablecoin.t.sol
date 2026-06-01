@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: UNLICENSED
+// SPDX-License-Identifier: Apache-2.0
 pragma solidity =0.8.30;
 
 import {Test} from "forge-std/Test.sol";
@@ -201,13 +201,13 @@ contract UpgradeStablecoinTest is Test {
 
         // Transfer TO frozen account still reverts
         vm.prank(USER1);
-        vm.expectRevert("Frozen account");
+        vm.expectPartialRevert(Stablecoin.AccountIsFrozen.selector);
         bool success = stablecoin.transfer(USER2, 100e6);
         assertFalse(success);
 
         // Transfer FROM frozen account still reverts
         vm.prank(USER2);
-        vm.expectRevert("Frozen account");
+        vm.expectPartialRevert(Stablecoin.AccountIsFrozen.selector);
         success = stablecoin.transfer(USER1, 100e6);
         assertFalse(success);
     }
@@ -394,9 +394,10 @@ contract UpgradeStablecoinTest is Test {
         bytes memory reinitData = abi.encodeCall(StablecoinV2.initializeV2, (MAX_SUPPLY));
         address eoa = address(0xDEAD);
 
-        // UUPS calls proxiableUUID() on the target first, which reverts on a non-contract address
+        // Stablecoin._authorizeUpgrade rejects non-contract implementations with
+        // NotAContract before reaching UUPSUpgradeable's proxiableUUID staticcall.
         vm.prank(ADMIN);
-        vm.expectRevert();
+        vm.expectRevert(abi.encodeWithSelector(Stablecoin.NotAContract.selector, eoa));
         UUPSUpgradeable(proxy).upgradeToAndCall(eoa, reinitData);
     }
 
