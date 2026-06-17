@@ -6,7 +6,11 @@ pragma solidity =0.8.30;
 interface IInbox {
     /// @notice Verify attestor signatures and deliver a message to the destination receiver.
     ///         The message is delivered as an `IMessageReceiver.handleMessage` call to the recipient.
-    /// @param message ABI-encoded (srcChain, srcSender, dstChain, dstRecipient, nonce, payload).
+    /// @param message ABI-encoded
+    ///         (srcChain, srcOutbox, srcSender, srcSeq, dstChain, dstRecipient, payload).
+    ///         The transport nonce is not part of the wire format: the Inbox
+    ///         recomputes `nonce = keccak256(srcChain, srcOutbox, srcSender, srcSeq)`
+    ///         and uses it as the replay-protection key.
     /// @param signatures Packed ECDSA signatures (65 bytes each: r[32] || s[32] || v[1]).
     function recvMessage(bytes calldata message, bytes calldata signatures) external;
 

@@ -49,12 +49,19 @@ contract BridgeDeployTest is BridgeTestBase {
         BridgeConfig.DstMinter[] memory dstMinters = new BridgeConfig.DstMinter[](1);
         dstMinters[0] = BridgeConfig.DstMinter(42, address(0xBBBB));
 
+        // Configure the canonical Outbox for srcChain=42. Use the local Outbox
+        // since BridgeTestBase happens to deploy only one — in production this would
+        // be the counterpart chain's deterministically-deployed Outbox.
+        BridgeConfig.SrcOutbox[] memory srcOutboxes = new BridgeConfig.SrcOutbox[](1);
+        srcOutboxes[0] = BridgeConfig.SrcOutbox(42, address(bridge.outbox));
+
         BridgeConfig.Config memory config = BridgeConfig.Config({
             attestors: attestors,
             threshold: 2,
             minterAllowance: 1_000_000e6,
             allowedSenders: allowedSenders,
-            dstMinters: dstMinters
+            dstMinters: dstMinters,
+            srcOutboxes: srcOutboxes
         });
 
         vm.startPrank(ADMIN);
@@ -76,6 +83,9 @@ contract BridgeDeployTest is BridgeTestBase {
 
         // Verify dst minters
         assertEq(bridge.bridgeBurner.dstMinters(42), address(0xBBBB));
+
+        // Verify src outboxes
+        assertEq(bridge.inbox.srcOutboxes(42), address(bridge.outbox));
     }
 
     // ─── Deterministic address invariant (M-02 / #2) ─────────────────

@@ -98,15 +98,39 @@ contract BridgeTestBase is Test {
         }
     }
 
-    /// @dev Encode a transport-level message.
+    /// @dev Encode a transport-level message using the wire format
+    /// `(srcChain, srcOutbox, srcSender, srcSeq, dstChain, dstRecipient, payload)`.
+    /// The Inbox recomputes the replay nonce from `(srcChain, srcOutbox, srcSender, srcSeq)`.
     function _encodeMessage(
         uint256 srcChain,
+        address srcOutbox,
         address srcSender,
+        uint256 srcSeq,
         uint256 dstChain,
         address dstRecipient,
-        bytes32 nonce,
         bytes memory payload
     ) internal pure returns (bytes memory) {
-        return abi.encode(srcChain, srcSender, dstChain, dstRecipient, nonce, payload);
+        return abi.encode(srcChain, srcOutbox, srcSender, srcSeq, dstChain, dstRecipient, payload);
+    }
+
+    /// @dev Recompute the same replay-protection nonce the Inbox derives.
+    function _deriveNonce(uint256 srcChain, address srcOutbox, address srcSender, uint256 srcSeq)
+        internal
+        pure
+        returns (bytes32)
+    {
+        return keccak256(abi.encode(srcChain, srcOutbox, srcSender, srcSeq));
+    }
+
+    /// @dev Register a canonical Outbox for `srcChain` on the test's Inbox.
+    /// Uses the local Outbox by default — this works in tests because there is
+    /// only one Outbox available and the Inbox treats it as opaque.
+    function _configureSrcOutbox(uint256 srcChain) internal {
+        _configureSrcOutbox(srcChain, address(bridge.outbox));
+    }
+
+    function _configureSrcOutbox(uint256 srcChain, address outbox) internal {
+        vm.prank(ADMIN);
+        bridge.inbox.setSrcOutbox(srcChain, outbox);
     }
 }

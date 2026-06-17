@@ -50,7 +50,13 @@ contract BridgeIntegrationTest is Test {
     address public attestor3;
     address public user;
 
-    uint256 public nonceCounter;
+    /// @dev The transport nonce is a derived field. Tests bump a `srcSeq` counter
+    /// that the helpers feed into the message; the Inbox recomputes the nonce as
+    /// `keccak256(srcChain, srcOutbox, srcSender, srcSeq)`. The counter
+    /// is purely test-local — the Outbox's per-sender counter (incremented inside
+    /// `sendTo`) is separate and unused here, because the tests construct
+    /// messages directly rather than picking up the Outbox-emitted nonce.
+    uint256 public srcSeqCounter;
 
     function setUp() public {
         attestor1 = vm.addr(ATTESTOR_PK_1);
@@ -171,27 +177,27 @@ contract BridgeIntegrationTest is Test {
         chainA.bridge.bridgeBurner.sendTo(CHAIN_B, recipient, amount2);
         vm.stopPrank();
 
-        // Deliver msg2 first, then msg1 (different nonces, both succeed)
-        bytes32 nonce1 = _nextNonce();
-        bytes32 nonce2 = _nextNonce();
+        // Deliver msg2 first, then msg1 (different srcSeqs → different derived nonces).
+        uint256 seq1 = _nextSeq();
+        uint256 seq2 = _nextSeq();
 
-        _deliverMessageWithNonce(
+        _deliverMessageWithSeq(
             chainA,
             chainB,
             address(chainA.bridge.bridgeBurner),
             address(chainB.bridge.bridgeMinter),
             recipient,
             amount2,
-            nonce2
+            seq2
         );
-        _deliverMessageWithNonce(
+        _deliverMessageWithSeq(
             chainA,
             chainB,
             address(chainA.bridge.bridgeBurner),
             address(chainB.bridge.bridgeMinter),
             recipient,
             amount1,
-            nonce1
+            seq1
         );
 
         assertEq(chainB.stablecoin.balanceOf(recipient), amount1 + amount2);
@@ -211,19 +217,22 @@ contract BridgeIntegrationTest is Test {
 
         // Try to deliver on chain C (dstChain=B but delivering to C's inbox)
         bytes memory payload = TokenMintMessage.encode(recipient, amount);
-        bytes32 nonce = _nextNonce();
-        // Message specifies dstChain=CHAIN_B but we're delivering to chain C
+        // Message format: (srcChain, srcOutbox, srcSender, srcSeq, dstChain, dstRecipient, payload)
         bytes memory message = abi.encode(
-            CHAIN_A, address(chainA.bridge.bridgeBurner), CHAIN_B, address(chainC.bridge.bridgeMinter), nonce, payload
+            CHAIN_A,
+            address(chainA.bridge.outbox),
+            address(chainA.bridge.bridgeBurner),
+            _nextSeq(),
+            CHAIN_B,
+            address(chainC.bridge.bridgeMinter),
+            payload
         );
 
         // Sign for chain C's inbox (but message says dstChain=B)
         bytes memory sigs = _signForInbox(chainC.bridge.inbox, message);
 
-        // Chain C's inbox checks dstChain == block.chainid (which we set to CHAIN_C)
-        // Since message has dstChain=CHAIN_B and we deliver to a VM with chainid=CHAIN_C... but
-        // in a single Foundry VM block.chainid is the same for all. So we check the WrongDestinationChain
-        // by constructing a message with wrong dstChain.
+        // Chain C's inbox checks dstChain == block.chainid. We set block.chainid to CHAIN_C
+        // and the message says dstChain=CHAIN_B, so WrongDestinationChain fires.
         vm.chainId(CHAIN_C);
         vm.expectRevert(abi.encodeWithSelector(Inbox.WrongDestinationChain.selector, CHAIN_C, CHAIN_B));
         chainC.bridge.inbox.recvMessage(message, sigs);
@@ -241,22 +250,25 @@ contract BridgeIntegrationTest is Test {
         vm.prank(user);
         chainA.bridge.bridgeBurner.sendTo(CHAIN_B, recipient, amount);
 
-        // Deliver once
-        bytes32 nonce = _nextNonce();
+        // Build the message; derive its nonce up-front so we can assert on the revert.
+        uint256 srcSeq = _nextSeq();
         bytes memory payload = TokenMintMessage.encode(recipient, amount);
         bytes memory message = abi.encode(
             CHAIN_A,
+            address(chainA.bridge.outbox),
             address(chainA.bridge.bridgeBurner),
+            srcSeq,
             block.chainid,
             address(chainB.bridge.bridgeMinter),
-            nonce,
             payload
         );
+        bytes32 expectedNonce =
+            _deriveNonce(CHAIN_A, address(chainA.bridge.outbox), address(chainA.bridge.bridgeBurner), srcSeq);
         bytes memory sigs = _signForInbox(chainB.bridge.inbox, message);
         chainB.bridge.inbox.recvMessage(message, sigs);
 
-        // Second delivery reverts
-        vm.expectRevert(abi.encodeWithSelector(Inbox.NonceAlreadyUsed.selector, nonce));
+        // Second delivery reverts on the derived nonce.
+        vm.expectRevert(abi.encodeWithSelector(Inbox.NonceAlreadyUsed.selector, expectedNonce));
         chainB.bridge.inbox.recvMessage(message, sigs);
     }
 
@@ -266,15 +278,15 @@ contract BridgeIntegrationTest is Test {
         address unknownSender = address(0x1111);
         address recipient = address(0xBEEF);
         uint256 amount = 100e6;
-        bytes32 nonce = _nextNonce();
 
         bytes memory payload = TokenMintMessage.encode(recipient, amount);
         bytes memory message = abi.encode(
             CHAIN_A,
+            address(chainA.bridge.outbox),
             unknownSender, // not chainA.bridge.bridgeBurner
+            _nextSeq(),
             block.chainid,
             address(chainB.bridge.bridgeMinter),
-            nonce,
             payload
         );
         bytes memory sigs = _signForInbox(chainB.bridge.inbox, message);
@@ -289,22 +301,24 @@ contract BridgeIntegrationTest is Test {
         uint256 unknownChain = 999;
         address recipient = address(0xBEEF);
         uint256 amount = 100e6;
-        bytes32 nonce = _nextNonce();
 
         bytes memory payload = TokenMintMessage.encode(recipient, amount);
+        // No srcOutbox configured for `unknownChain` — the Inbox rejects before reaching
+        // the BridgeMinter's `DisallowedSender` check.
         bytes memory message = abi.encode(
             unknownChain,
-            address(chainA.bridge.bridgeBurner), // valid sender address but wrong chain
+            address(chainA.bridge.outbox), // doesn't matter — chain has no entry
+            address(chainA.bridge.bridgeBurner),
+            _nextSeq(),
             block.chainid,
             address(chainB.bridge.bridgeMinter),
-            nonce,
             payload
         );
         bytes memory sigs = _signForInbox(chainB.bridge.inbox, message);
 
         vm.expectRevert(
             abi.encodeWithSelector(
-                BridgeMinter.DisallowedSender.selector, unknownChain, address(chainA.bridge.bridgeBurner)
+                Inbox.UnknownSrcOutbox.selector, unknownChain, address(chainA.bridge.outbox), address(0)
             )
         );
         chainB.bridge.inbox.recvMessage(message, sigs);
@@ -348,18 +362,31 @@ contract BridgeIntegrationTest is Test {
     }
 
     /// @dev Cross-configure two chains so each allows the other's BridgeBurner as a sender.
+    /// Also registers the counterpart chain's Outbox in each Inbox's `srcOutboxes` map —
+    /// required so the destination Inbox can verify the source-bound nonce.
     function _crossConfigure(ChainState memory a, ChainState memory b) internal {
-        // a's minter accepts messages from b's burner
+        // a's minter accepts messages from b's burner; a's inbox knows b's outbox.
         a.bridge.bridgeMinter.setAllowedSender(b.chainId, address(b.bridge.bridgeBurner));
         a.bridge.bridgeBurner.setDstMinter(b.chainId, address(b.bridge.bridgeMinter));
+        a.bridge.inbox.setSrcOutbox(b.chainId, address(b.bridge.outbox));
 
-        // b's minter accepts messages from a's burner
+        // b's minter accepts messages from a's burner; b's inbox knows a's outbox.
         b.bridge.bridgeMinter.setAllowedSender(a.chainId, address(a.bridge.bridgeBurner));
         b.bridge.bridgeBurner.setDstMinter(a.chainId, address(a.bridge.bridgeMinter));
+        b.bridge.inbox.setSrcOutbox(a.chainId, address(a.bridge.outbox));
     }
 
-    function _nextNonce() internal returns (bytes32) {
-        return bytes32(++nonceCounter);
+    function _nextSeq() internal returns (uint256) {
+        return ++srcSeqCounter;
+    }
+
+    /// @dev Recompute the derived nonce for a manually-built message.
+    function _deriveNonce(uint256 srcChain, address srcOutbox, address srcSender, uint256 srcSeq)
+        internal
+        pure
+        returns (bytes32)
+    {
+        return keccak256(abi.encode(srcChain, srcOutbox, srcSender, srcSeq));
     }
 
     /// @dev Simulate the full server flow: construct message, sign, deliver.
@@ -371,20 +398,26 @@ contract BridgeIntegrationTest is Test {
         address recipient,
         uint256 amount
     ) internal {
-        _deliverMessageWithNonce(src, dst, srcSender, dstRecipient, recipient, amount, _nextNonce());
+        _deliverMessageWithSeq(src, dst, srcSender, dstRecipient, recipient, amount, _nextSeq());
     }
 
-    function _deliverMessageWithNonce(
+    /// @dev Build the wire message
+    /// `(srcChain, srcOutbox, srcSender, srcSeq, dstChain, dstRecipient, payload)`
+    /// and deliver it. Each invocation uses a unique `srcSeq` so the derived nonces
+    /// stay distinct.
+    function _deliverMessageWithSeq(
         ChainState memory src,
         ChainState memory dst,
         address srcSender,
         address dstRecipient,
         address recipient,
         uint256 amount,
-        bytes32 nonce
+        uint256 srcSeq
     ) internal {
         bytes memory payload = TokenMintMessage.encode(recipient, amount);
-        bytes memory message = abi.encode(src.chainId, srcSender, block.chainid, dstRecipient, nonce, payload);
+        bytes memory message = abi.encode(
+            src.chainId, address(src.bridge.outbox), srcSender, srcSeq, block.chainid, dstRecipient, payload
+        );
         bytes memory sigs = _signForInbox(dst.bridge.inbox, message);
         dst.bridge.inbox.recvMessage(message, sigs);
     }
