@@ -359,11 +359,26 @@ contract Stablecoin is
         super._update(from, to, value);
     }
 
-    /// @dev Block allowance grants while paused. `_update` already blocks token movement,
-    /// but `approve` and `_spendAllowance` do not route through `_update`, so without
-    /// this override `approve()` (and the allowance bookkeeping inside `transferFrom` /
-    /// `burnFrom`) could still mutate state during a pause.
-    function _approve(address owner, address spender, uint256 value, bool emitEvent) internal override whenNotPaused {
+    /// @dev Block allowance grants while paused OR while either party is frozen.
+    /// `_update` already blocks token movement, but `approve` and `_spendAllowance`
+    /// do not route through `_update`, so without this override `approve()` (and the
+    /// allowance bookkeeping inside `transferFrom` / `burnFrom`) could still mutate
+    /// state during a pause or against a frozen account.
+    ///
+    /// The freeze checks cover both `owner` and `spender`, mirroring `_update`'s
+    /// symmetric `from`/`to` policy. Blocking a frozen spender is intentional even
+    /// when the owner is not frozen — a frozen account cannot exercise the allowance
+    /// anyway, and the check stops the allowance from being staged for use after
+    /// the freeze is lifted. Without this, allowances staged while frozen become
+    /// live the moment the freeze is removed, defeating the protective intent of
+    /// the freeze flag.
+    function _approve(address owner, address spender, uint256 value, bool emitEvent)
+        internal
+        override
+        whenNotPaused
+        whenNotFrozen(owner)
+        whenNotFrozen(spender)
+    {
         super._approve(owner, spender, value, emitEvent);
     }
 
