@@ -58,7 +58,7 @@ The full message has two levels: the transport envelope and the application payl
 | `srcSender` | `address` | Address that sent the outbox message (BridgeBurner) |
 | `dstChain` | `uint256` | Chain ID where tokens should be minted |
 | `dstRecipient` | `address` | Address to call on the destination chain (BridgeMinter) |
-| `nonce` | `bytes32` | Replay protection identifier, assigned by the server |
+| `nonce` | `bytes32` | Deterministic replay-protection identifier, `keccak256(abi.encode(srcChain, blockHash, txHash, txLocalLogIndex))`. `txLocalLogIndex` is the log's position within its transaction's log array, not the block-level `logIndex` from `eth_getLogs`. |
 | `payload` | `bytes` | Application-level data, opaque to the transport layer |
 
 **Application-level payload** (encoded/decoded by `TokenMintMessage`):
@@ -68,7 +68,7 @@ The full message has two levels: the transport envelope and the application payl
 | `recipient` | `address` | Who receives the minted tokens |
 | `amount` | `uint256` | How many tokens to mint |
 
-The server constructs the full message from event data (`srcSender` from `msg.sender`, `dstChain`, `dstRecipient`, `payload`), context (`srcChain` from which chain the event was observed on), and its own assignment (`nonce`).
+The server constructs the full message from event data (`srcSender` from `msg.sender`, `dstChain`, `dstRecipient`, `payload`), context (`srcChain` from which chain the event was observed on), and a deterministic nonce computed as `keccak256(abi.encode(srcChain, blockHash, txHash, txLocalLogIndex))`.
 
 ## Interfaces
 
@@ -165,7 +165,7 @@ sequenceDiagram
 
     Outbox --) Server: MessageSent event
     activate Server
-    Server ->> Server: wait for finality, assign nonce, collect k-of-n signatures
+    Server ->> Server: wait for finality, derive the deterministic nonce, collect k-of-n signatures
     deactivate Server
 
     Note over User, Server: 4. User requests attestation
@@ -191,7 +191,7 @@ sequenceDiagram
 |------|-------|--------|-------|
 | 1 | User | `approve()` the BridgeBurner to spend tokens | A |
 | 2 | User | `sendTo()` on BridgeBurner, which burns tokens and sends a message through the Outbox | A |
-| 3 | Server | Watches `MessageSent` events, waits for finality, assigns nonce, collects k-of-n attestor signatures | off-chain |
+| 3 | Server | Watches `MessageSent` events, waits for finality, derives the deterministic nonce, collects k-of-n attestor signatures | off-chain |
 | 4 | User | Fetches the signed attestation from the Server | off-chain |
 | 5 | User | `recvMessage()` on Inbox, which verifies signatures and nonce, then calls BridgeMinter to mint tokens | B |
 
@@ -218,7 +218,7 @@ All bridge contracts (Inbox, Outbox, BridgeBurner, BridgeMinter) use Ownable2Ste
 
 ### Replay protection
 
-The off-chain server assigns an opaque `bytes32` nonce to each message. The Inbox tracks used nonces in a `mapping(bytes32 => uint256)` (0 = unused, 1 = used) and rejects any message with a previously seen nonce. The mapping uses `uint256` instead of `bool` to avoid the extra read-modify-write the compiler emits for sub-word storage types.
+The off-chain server computes a deterministic `bytes32` nonce for each message as `keccak256(abi.encode(srcChain, blockHash, txHash, txLocalLogIndex))`. The nonce is fully reproducible from public source-chain data rather than private server state: anyone with the source block hash, transaction hash, and transaction-local log index can recompute it, which is how the attestor and the Bridge API watcher arrive at the same nonce independently. Because `blockHash` is an input, a burn re-included in a different block after a reorg produces a new nonce. The Inbox tracks used nonces in a `mapping(bytes32 => uint256)` (0 = unused, 1 = used) and rejects any message with a previously seen nonce. The mapping uses `uint256` instead of `bool` to avoid the extra read-modify-write the compiler emits for sub-word storage types.
 
 ### Source chain finality
 
